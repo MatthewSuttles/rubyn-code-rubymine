@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+  <!-- Rubyn plugin icon: 40×40 as required by the JetBrains Marketplace -->
+  <rect width="40" height="40" rx="8" fill="#CC0000"/>
+  <text x="20" y="27" font-family="monospace" font-size="22" font-weight="bold"
+        text-anchor="middle" fill="#FFFFFF">R</text>
+</svg>
