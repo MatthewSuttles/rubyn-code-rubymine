@@ -1,13 +1,133 @@
-<!-- Plugin manifest — full configuration lives in Task 2 (Plugin Manifest & Bootstrap) -->
 <idea-plugin>
     <id>com.rubyn.rubymine</id>
-    <name>rubyn-code-rubymine</name>
-    <vendor>rubyn</vendor>
+    <name>Rubyn</name>
+    <vendor email="support@rubyn.dev" url="https://rubyn.dev">Rubyn</vendor>
 
     <description><![CDATA[
-        RubyMine IDE plugin for rubyn-code — AI pair programmer for Ruby/Rails projects.
+        <b>Rubyn</b> — AI pair programmer for Ruby and Rails projects.<br><br>
+        Rubyn connects your IDE to a local rubyn-code agent that understands your entire
+        codebase. Ask questions, request edits, and review proposed diffs without leaving
+        RubyMine or IntelliJ IDEA Ultimate.
     ]]></description>
 
+    <change-notes><![CDATA[
+        <b>0.1.0</b> — Initial release.
+    ]]></change-notes>
+
+    <!-- Platform and Ruby plugin dependency -->
     <depends>com.intellij.modules.platform</depends>
     <depends>org.jetbrains.plugins.ruby</depends>
+
+    <resource-bundle>messages.RubynBundle</resource-bundle>
+
+    <extensions defaultExtensionNs="com.intellij">
+
+        <!-- ── Tool Window ──────────────────────────────────────────────── -->
+        <toolWindow
+            id="Rubyn"
+            anchor="right"
+            secondary="false"
+            icon="com.rubyn.icons.RubynIcons.ToolWindowIcon"
+            factoryClass="com.rubyn.toolwindow.RubynToolWindowFactory"
+            conditionClass="com.rubyn.toolwindow.RubynToolWindowCondition"/>
+
+        <!-- ── Application-level services ──────────────────────────────── -->
+        <!-- (none at application scope for v0.1) -->
+
+        <!-- ── Project-level services ───────────────────────────────────── -->
+        <projectService
+            serviceInterface="com.rubyn.services.RubynProjectService"
+            serviceImplementation="com.rubyn.services.RubynProjectService"/>
+
+        <projectService
+            serviceInterface="com.rubyn.services.RubynProcessService"
+            serviceImplementation="com.rubyn.services.RubynProcessService"/>
+
+        <!-- ── Settings / Configurable ──────────────────────────────────── -->
+        <applicationConfigurable
+            parentId="tools"
+            instance="com.rubyn.settings.RubynConfigurable"
+            id="com.rubyn.settings.RubynConfigurable"
+            displayName="Rubyn"/>
+
+        <!-- ── Status Bar Widget ────────────────────────────────────────── -->
+        <statusBarWidgetFactory
+            id="com.rubyn.statusbar.RubynStatusBarWidgetFactory"
+            implementation="com.rubyn.statusbar.RubynStatusBarWidgetFactory"
+            order="after Position"/>
+
+        <!-- ── Notification Group ───────────────────────────────────────── -->
+        <notificationGroup
+            id="Rubyn"
+            displayType="BALLOON"
+            key="notification.group.rubyn"/>
+
+        <!-- ── Startup Activity ─────────────────────────────────────────── -->
+        <postStartupActivity
+            implementation="com.rubyn.startup.RubynStartupActivity"/>
+
+    </extensions>
+
+    <actions>
+
+        <!-- ── Main Menu: Tools > Rubyn ─────────────────────────────────── -->
+        <group
+            id="com.rubyn.actions.MainMenu"
+            text="Rubyn"
+            description="Rubyn AI pair programmer actions"
+            popup="true">
+
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+
+            <action
+                id="com.rubyn.actions.OpenChat"
+                class="com.rubyn.actions.OpenChatAction"
+                text="Open Chat"
+                description="Open Rubyn chat panel"
+                icon="com.rubyn.icons.RubynIcons.ActionIcon">
+                <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift R"/>
+            </action>
+
+            <separator/>
+
+            <action
+                id="com.rubyn.actions.ExplainCode"
+                class="com.rubyn.actions.ExplainCodeAction"
+                text="Explain Selection"
+                description="Ask Rubyn to explain the selected code">
+                <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift E"/>
+            </action>
+
+            <action
+                id="com.rubyn.actions.RefactorCode"
+                class="com.rubyn.actions.RefactorCodeAction"
+                text="Refactor with Rubyn"
+                description="Ask Rubyn to refactor the selected code"/>
+
+            <action
+                id="com.rubyn.actions.ReviewCode"
+                class="com.rubyn.actions.ReviewCodeAction"
+                text="Review with Rubyn"
+                description="Ask Rubyn to review the selected code"/>
+
+        </group>
+
+        <!-- ── Editor Context Menu: Rubyn ───────────────────────────────── -->
+        <group
+            id="com.rubyn.actions.EditorContext"
+            text="Rubyn"
+            description="Rubyn AI actions"
+            popup="true">
+
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+
+            <reference ref="com.rubyn.actions.ExplainCode"/>
+            <reference ref="com.rubyn.actions.RefactorCode"/>
+            <reference ref="com.rubyn.actions.ReviewCode"/>
+            <reference ref="com.rubyn.actions.OpenChat"/>
+
+        </group>
+
+    </actions>
+
 </idea-plugin>
