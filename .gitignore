@@ -1,0 +1,25 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
+
+# IntelliJ Platform Plugin
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+# IntelliJ Platform Gradle Plugin caches
+.intellijPlatform/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Signing credentials — never commit
+certificate/
+
+# Kotlin incremental compilation
+kotlin-js-store/

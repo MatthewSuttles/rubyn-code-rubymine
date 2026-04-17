@@ -1,0 +1,13 @@
+<!-- Plugin manifest — full configuration lives in Task 2 (Plugin Manifest & Bootstrap) -->
+<idea-plugin>
+    <id>com.rubyn.rubymine</id>
+    <name>rubyn-code-rubymine</name>
+    <vendor>rubyn</vendor>
+
+    <description><![CDATA[
+        RubyMine IDE plugin for rubyn-code — AI pair programmer for Ruby/Rails projects.
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>org.jetbrains.plugins.ruby</depends>
+</idea-plugin>
