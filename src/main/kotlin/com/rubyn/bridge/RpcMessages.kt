@@ -131,6 +131,10 @@ object RpcMethod {
     // File edit approval responses
     const val FILE_EDIT_APPROVE = "file/edit/approve"
     const val FILE_EDIT_DENY    = "file/edit/deny"
+
+    // Session management (extended)
+    const val SESSION_EXPORT = "session/export"
+    const val SESSION_DELETE = "session/delete"
 }
 
 /**
@@ -351,4 +355,28 @@ data class AgentErrorParams(
     val message: String,
     val code: Int? = null,
     @SerialName("session_id") val sessionId: String? = null,
+)
+
+/**
+ * Params for [RpcMethod.SESSION_EXPORT].
+ */
+@Serializable
+data class SessionExportParams(
+    @SerialName("session_id") val sessionId: String,
+)
+
+/**
+ * Result from [RpcMethod.SESSION_EXPORT] — raw JSON transcript content.
+ */
+@Serializable
+data class SessionExportResult(
+    val content: String,
+)
+
+/**
+ * Params for [RpcMethod.SESSION_DELETE].
+ */
+@Serializable
+data class SessionDeleteParams(
+    @SerialName("session_id") val sessionId: String,
 )
