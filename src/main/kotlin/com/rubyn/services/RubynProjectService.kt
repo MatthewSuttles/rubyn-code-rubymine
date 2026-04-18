@@ -536,6 +536,32 @@ class RubynProjectService(private val project: Project) : Disposable {
                 updateOnMain {
                     _pendingEdits.value = _pendingEdits.value + edit
                 }
+                // Present the diff to the user via RubynDiffManager (Task 8).
+                // The manager reads the permission mode and opens a viewer,
+                // auto-accepts, or flash-accepts accordingly.
+                val proposedEdit = when {
+                    params.diff.before.isEmpty() ->
+                        com.rubyn.diff.ProposedEdit.Create(
+                            editId = params.editId,
+                            filePath = params.diff.path,
+                            after = params.diff.after,
+                        )
+                    params.diff.after.isEmpty() ->
+                        com.rubyn.diff.ProposedEdit.Delete(
+                            editId = params.editId,
+                            filePath = params.diff.path,
+                            before = params.diff.before,
+                        )
+                    else ->
+                        com.rubyn.diff.ProposedEdit.Modify(
+                            editId = params.editId,
+                            filePath = params.diff.path,
+                            before = params.diff.before,
+                            after = params.diff.after,
+                        )
+                }
+                project.getService(com.rubyn.diff.RubynDiffManager::class.java)
+                    ?.presentEdit(proposedEdit)
             }
 
             NotificationMethod.STREAM_TEXT,

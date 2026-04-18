@@ -53,6 +53,11 @@
             serviceInterface="com.rubyn.context.ProjectDetector"
             serviceImplementation="com.rubyn.context.ProjectDetector"/>
 
+        <!-- ── Diff Manager (Task 8) ─────────────────────────────────────── -->
+        <projectService
+            serviceInterface="com.rubyn.diff.RubynDiffManager"
+            serviceImplementation="com.rubyn.diff.RubynDiffManager"/>
+
         <!-- ── Settings / Configurable ──────────────────────────────────── -->
         <applicationConfigurable
             parentId="tools"
@@ -166,6 +171,25 @@
             <reference ref="com.rubyn.actions.GenerateSpecs"/>
             <reference ref="com.rubyn.actions.OpenChat"/>
 
+        </group>
+
+        <!-- ── Diff Viewer Toolbar: Accept / Reject (Task 8) ───────────────── -->
+        <group id="com.rubyn.diff.DiffToolbar">
+            <add-to-group group-id="Diff.ViewerToolbar" anchor="first"/>
+
+            <action
+                id="com.rubyn.diff.AcceptEdit"
+                class="com.rubyn.diff.AcceptEditAction"
+                text="Accept Edit"
+                description="Accept this proposed file change and write it to disk"
+                icon="com.rubyn.icons.RubynIcons.AcceptEdit"/>
+
+            <action
+                id="com.rubyn.diff.RejectEdit"
+                class="com.rubyn.diff.RejectEditAction"
+                text="Reject Edit"
+                description="Reject this proposed file change"
+                icon="com.rubyn.icons.RubynIcons.RejectEdit"/>
         </group>
 
     </actions>
