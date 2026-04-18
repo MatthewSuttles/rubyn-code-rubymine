@@ -23,7 +23,6 @@ import java.nio.charset.Charset
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicInteger
 
 private val LOG = logger<RubynProcessService>()
 
@@ -62,16 +61,22 @@ private const val MIN_RUBY_MINOR = 1
  * and suppress further auto-restart.
  *
  * ## Thread safety
- * All mutable state is guarded by the intrinsic lock (every method that reads or
- * writes [processHandler], [executablePath], [authErrorDetected], [pendingRestart],
- * or [disposed] is [Synchronized]). [scheduleRestart] is only ever called while
- * the caller already holds the lock. The scheduler callback re-acquires the lock
- * before touching any state, so there is no lock re-entry issue.
+ * The intrinsic lock guards state mutation only — it is never held during blocking
+ * I/O ([handler.waitFor], [checkRubyVersion], [logWriter.close]).
+ *
+ * Pattern for operations that both mutate state AND do blocking work:
+ *   1. Acquire lock, snapshot/mutate state, release lock.
+ *   2. Do blocking I/O outside the lock.
+ *
+ * This eliminates the deadlock where [processTerminated] (called by the OSProcessHandler
+ * notifier thread while the handler holds its own internal monitor) tries to acquire
+ * this lock while [stop]/[restart]/[dispose] hold this lock and block inside
+ * [handler.waitFor].
  */
 @Service(Service.Level.PROJECT)
 class RubynProcessService(private val project: Project) : Disposable {
 
-    // ── State ─────────────────────────────────────────────────────────────
+    // ── State (all guarded by intrinsic lock) ─────────────────────────────
 
     private val _isRunning = MutableStateFlow(false)
 
@@ -81,26 +86,16 @@ class RubynProcessService(private val project: Project) : Disposable {
      */
     val isRunning: StateFlow<Boolean> = _isRunning.asStateFlow()
 
-    @Volatile
     private var processHandler: OSProcessHandler? = null
-
-    @Volatile
     private var executablePath: String? = null
-
-    @Volatile
     private var authErrorDetected = false
-
-    private val restartAttempts = AtomicInteger(0)
+    private var restartAttempts = 0
+    private var pendingRestart: ScheduledFuture<*>? = null
+    private var disposed = false
 
     private val scheduler = Executors.newSingleThreadScheduledExecutor { r ->
         Thread(r, "rubyn-process-scheduler-${project.name}").also { it.isDaemon = true }
     }
-
-    @Volatile
-    private var pendingRestart: ScheduledFuture<*>? = null
-
-    @Volatile
-    private var disposed = false
 
     // ── Log file ──────────────────────────────────────────────────────────
 
@@ -109,8 +104,8 @@ class RubynProcessService(private val project: Project) : Disposable {
      * directory so it survives across sessions without cluttering the project.
      *
      * The writer is kept open for the lifetime of the service to avoid per-line
-     * FileWriter allocation. Access is confined to the process listener thread
-     * (the OSProcessHandler notifier thread).
+     * FileWriter allocation. Access is confined to the OSProcessHandler notifier
+     * thread via [appendToLogFile]; no synchronization needed for writes.
      */
     private val logWriter: BufferedWriter by lazy {
         val logDir = File(System.getProperty("idea.system.path", System.getProperty("java.io.tmpdir")), "rubyn-logs")
@@ -124,19 +119,26 @@ class RubynProcessService(private val project: Project) : Disposable {
     /**
      * Starts the rubyn-code process if it is not already running.
      *
-     * Runs pre-flight checks first. Notifies the user and returns early if any
-     * check fails. Thread-safe — safe to call from any thread.
+     * Pre-flight checks ([resolveExecutable], [checkRubyVersion]) run outside
+     * the lock because they may block. State is re-checked under the lock before
+     * spawning to handle concurrent calls safely.
+     *
+     * Thread-safe — safe to call from any thread, including the pooled thread
+     * used by notification action buttons.
      */
-    @Synchronized
     fun start() {
-        if (disposed) return
-        if (_isRunning.value) {
-            LOG.info("RubynProcessService.start() called but process is already running")
-            return
+        // Phase 1: check whether we should proceed — under lock, no blocking I/O.
+        synchronized(this) {
+            if (disposed) return
+            if (_isRunning.value) {
+                LOG.info("start() called but process is already running")
+                return
+            }
         }
 
         LOG.info("RubynProcessService: starting rubyn-code for project '${project.name}'")
 
+        // Phase 2: pre-flight checks — outside lock, may block up to 5s.
         val executable = resolveExecutable() ?: run {
             LOG.warn("rubyn-code executable not found — notifying user")
             RubynNotifier.gemNotFound(project)
@@ -144,24 +146,32 @@ class RubynProcessService(private val project: Project) : Disposable {
         }
 
         if (!checkRubyVersion()) {
-            // checkRubyVersion shows the notification internally
+            // checkRubyVersion shows the notification internally.
             return
         }
 
-        executablePath = executable
-        authErrorDetected = false
-        spawnProcess(executable)
+        // Phase 3: re-acquire lock, re-check state, then spawn.
+        synchronized(this) {
+            if (disposed || _isRunning.value) return
+            executablePath = executable
+            authErrorDetected = false
+            spawnProcess(executable)
+        }
     }
 
     /**
      * Stops the process gracefully (SIGTERM → wait → SIGKILL).
      * Cancels any pending auto-restart. Thread-safe.
      */
-    @Synchronized
     fun stop() {
-        cancelPendingRestart()
-        restartAttempts.set(0)
-        terminateProcess()
+        // Snapshot the handler under lock; blocking wait happens outside.
+        val handler: OSProcessHandler?
+        synchronized(this) {
+            cancelPendingRestart()
+            restartAttempts = 0
+            handler = detachHandler()
+        }
+        awaitTermination(handler)
     }
 
     /**
@@ -171,28 +181,44 @@ class RubynProcessService(private val project: Project) : Disposable {
      * (e.g. a notification action button) because [checkRubyVersion] can block
      * up to 5 seconds waiting for `ruby --version` to complete.
      */
-    @Synchronized
     fun restart() {
         LOG.info("RubynProcessService.restart() called for project '${project.name}'")
-        cancelPendingRestart()
-        restartAttempts.set(0)
-        authErrorDetected = false
-        terminateProcess()
-        val executable = executablePath ?: run {
-            start()
-            return
+
+        // Phase 1: tear down current process state under lock — no blocking I/O.
+        val handler: OSProcessHandler?
+        synchronized(this) {
+            cancelPendingRestart()
+            restartAttempts = 0
+            authErrorDetected = false
+            handler = detachHandler()
         }
-        spawnProcess(executable)
+
+        // Phase 2: wait for termination outside lock.
+        awaitTermination(handler)
+
+        // Phase 3: start() handles its own locking and preflight.
+        start()
     }
 
     // ── Disposal ──────────────────────────────────────────────────────────
 
     override fun dispose() {
-        disposed = true
         LOG.info("RubynProcessService disposing for project '${project.name}'")
-        cancelPendingRestart()
-        scheduler.shutdownNow()
-        terminateProcess()
+
+        // Phase 1: mark disposed, cancel scheduler work, snapshot handler — all under lock.
+        val handler: OSProcessHandler?
+        synchronized(this) {
+            disposed = true
+            cancelPendingRestart()
+            scheduler.shutdownNow()
+            handler = detachHandler()
+        }
+
+        // Phase 2: blocking termination outside the lock.
+        awaitTermination(handler)
+
+        // Phase 3: close log writer (no lock needed — the process is already gone,
+        // so the notifier thread will no longer call appendToLogFile).
         runCatching { logWriter.close() }
     }
 
@@ -204,6 +230,8 @@ class RubynProcessService(private val project: Project) : Disposable {
      * Resolution order:
      *   1. executablePath from [RubynSettingsService] (if non-blank and the file exists).
      *   2. PATH search for rubyn-code.
+     *
+     * Does not require the lock — reads only from settings and the filesystem.
      */
     private fun resolveExecutable(): String? {
         val configured = RubynSettingsService.getInstance().settings().executablePath.trim()
@@ -234,9 +262,8 @@ class RubynProcessService(private val project: Project) : Disposable {
      * Shows a warning notification and returns false when the version is too old.
      * Returns true (permissive) if the version cannot be determined.
      *
-     * Note: this method may block up to 5 seconds waiting for ruby --version.
-     * It must not be called on the EDT. It is only called from [start] and [restart],
-     * which must themselves be dispatched off the EDT when triggered from UI actions.
+     * **Blocking** — may wait up to 5 seconds. Must NOT be called on the EDT and
+     * must NOT be called while holding the intrinsic lock.
      */
     private fun checkRubyVersion(): Boolean {
         val rubyBinary = findRubyBinary() ?: return true // can't check — proceed
@@ -248,7 +275,6 @@ class RubynProcessService(private val project: Project) : Disposable {
 
             val finished = process.waitFor(5, TimeUnit.SECONDS)
             if (!finished) {
-                // Timed out — destroy the process to avoid a leak, then proceed.
                 process.destroyForcibly()
                 LOG.info("ruby --version timed out — skipping version check")
                 return true
@@ -280,19 +306,22 @@ class RubynProcessService(private val project: Project) : Disposable {
     }
 
     private fun findRubyBinary(): String? {
-        val candidates = listOf("ruby")
         val pathDirs = System.getenv("PATH")?.split(File.pathSeparator) ?: emptyList()
-        for (name in candidates) {
-            for (dir in pathDirs) {
-                val f = File(dir, name)
-                if (f.isFile && f.canExecute()) return f.absolutePath
-            }
+        for (dir in pathDirs) {
+            val f = File(dir, "ruby")
+            if (f.isFile && f.canExecute()) return f.absolutePath
         }
         return null
     }
 
     // ── Process spawning ──────────────────────────────────────────────────
 
+    /**
+     * Spawns the process and attaches the lifecycle listener.
+     *
+     * Caller must hold the intrinsic lock. Non-blocking beyond initial process
+     * creation (OSProcessHandler.startNotify returns immediately).
+     */
     private fun spawnProcess(executable: String) {
         val projectDir = project.basePath ?: run {
             LOG.warn("Project has no base path — cannot start rubyn-code")
@@ -325,17 +354,30 @@ class RubynProcessService(private val project: Project) : Disposable {
     // ── Process termination ───────────────────────────────────────────────
 
     /**
-     * Sends SIGTERM and waits [GRACEFUL_STOP_TIMEOUT_MS] for the process to
-     * exit before force-destroying it. Sets [_isRunning] to false.
+     * Removes the current handler from state and clears [_isRunning].
+     * Returns the handler so the caller can call [awaitTermination] outside the lock.
      *
      * Caller must hold the intrinsic lock.
      */
-    private fun terminateProcess() {
-        val handler = processHandler ?: return
+    private fun detachHandler(): OSProcessHandler? {
+        val handler = processHandler ?: return null
         processHandler = null
         _isRunning.value = false
+        return handler
+    }
 
-        if (handler.isProcessTerminated) return
+    /**
+     * Sends SIGTERM and waits [GRACEFUL_STOP_TIMEOUT_MS] for the process to exit
+     * before force-destroying it.
+     *
+     * Must be called **outside** the intrinsic lock. [processTerminated] fires on
+     * the OSProcessHandler notifier thread and tries to acquire this lock; if we
+     * hold the lock here and block on [handler.waitFor], we deadlock.
+     *
+     * Safe to call with a null handler — returns immediately.
+     */
+    private fun awaitTermination(handler: OSProcessHandler?) {
+        if (handler == null || handler.isProcessTerminated) return
 
         LOG.info("Terminating rubyn-code process...")
         try {
@@ -357,8 +399,13 @@ class RubynProcessService(private val project: Project) : Disposable {
     /**
      * Schedules an automatic restart after the appropriate back-off delay.
      *
-     * Must be called while holding the intrinsic lock. The scheduled callback
-     * re-acquires the lock before touching any state.
+     * Must be called while holding the intrinsic lock. The scheduler callback
+     * re-acquires the lock before touching any state, and calls [spawnProcess]
+     * without any blocking I/O — no deadlock risk.
+     *
+     * When [executablePath] is null (unlikely after a crash), the callback
+     * dispatches [start] on a pooled thread so that preflight checks run outside
+     * both the scheduler thread and this lock.
      */
     private fun scheduleRestart() {
         if (disposed) return
@@ -367,7 +414,8 @@ class RubynProcessService(private val project: Project) : Disposable {
             return
         }
 
-        val attempt = restartAttempts.incrementAndGet()
+        restartAttempts++
+        val attempt = restartAttempts
         if (attempt > MAX_RESTART_ATTEMPTS) {
             LOG.warn("rubyn-code crashed $attempt times — giving up auto-restart")
             return
@@ -377,16 +425,18 @@ class RubynProcessService(private val project: Project) : Disposable {
         LOG.info("Scheduling rubyn-code restart (attempt $attempt/$MAX_RESTART_ATTEMPTS) in ${delayMs}ms")
 
         pendingRestart = scheduler.schedule({
+            val exeSnapshot: String?
             synchronized(this) {
-                if (!disposed) {
-                    val exe = executablePath
-                    if (exe != null) {
-                        spawnProcess(exe)
-                    } else {
-                        start()
-                    }
+                if (disposed || _isRunning.value) return@schedule
+                exeSnapshot = executablePath
+                if (exeSnapshot != null) {
+                    spawnProcess(exeSnapshot)
+                    return@schedule
                 }
             }
+            // executablePath was null — must run start() outside the lock because
+            // start() acquires the lock itself and calls blocking pre-flight checks.
+            ApplicationManager.getApplication().executeOnPooledThread { start() }
         }, delayMs, TimeUnit.MILLISECONDS)
     }
 
@@ -397,6 +447,12 @@ class RubynProcessService(private val project: Project) : Disposable {
 
     // ── Stderr logging ────────────────────────────────────────────────────
 
+    /**
+     * Writes [text] to the persistent log file.
+     *
+     * Called exclusively from the OSProcessHandler notifier thread. Swallows
+     * I/O errors silently — the IDE diagnostic log captures the failure.
+     */
     private fun appendToLogFile(text: String) {
         try {
             logWriter.write(text)
@@ -408,8 +464,6 @@ class RubynProcessService(private val project: Project) : Disposable {
 
     private fun detectAuthError(line: String): Boolean {
         val lower = line.lowercase()
-        // Require explicit "unauthorized" / "forbidden" or the combination of
-        // "auth" + a failure keyword to reduce false-positive risk.
         return lower.contains("unauthorized") ||
             lower.contains("forbidden") ||
             (lower.contains("authentication") && lower.contains("failed")) ||
@@ -427,11 +481,19 @@ class RubynProcessService(private val project: Project) : Disposable {
                 appendToLogFile(text)
                 LOG.debug("[rubyn-code stderr] ${text.trimEnd()}")
 
+                // Double-checked read of authErrorDetected — the outer read is
+                // unsynchronized (cheap fast path); the inner write is under lock.
                 if (!authErrorDetected && detectAuthError(text)) {
-                    authErrorDetected = true
-                    LOG.warn("Auth error detected in rubyn-code stderr: ${text.trimEnd()}")
-                    ApplicationManager.getApplication().invokeLater {
-                        RubynNotifier.notAuthenticated(project)
+                    val firstDetection: Boolean
+                    synchronized(this@RubynProcessService) {
+                        firstDetection = !authErrorDetected
+                        if (firstDetection) authErrorDetected = true
+                    }
+                    if (firstDetection) {
+                        LOG.warn("Auth error detected in rubyn-code stderr: ${text.trimEnd()}")
+                        ApplicationManager.getApplication().invokeLater {
+                            RubynNotifier.notAuthenticated(project)
+                        }
                     }
                 }
             }
@@ -441,6 +503,7 @@ class RubynProcessService(private val project: Project) : Disposable {
             val exitCode = event.exitCode
             LOG.info("rubyn-code exited with code $exitCode for project '${project.name}'")
 
+            // Acquire lock only for state mutation. No blocking I/O inside this block.
             synchronized(this@RubynProcessService) {
                 _isRunning.value = false
 
@@ -448,13 +511,14 @@ class RubynProcessService(private val project: Project) : Disposable {
 
                 if (exitCode != 0) {
                     LOG.warn("rubyn-code exited unexpectedly (code=$exitCode)")
+                    // Notification dispatched off-lock via invokeLater — safe.
                     ApplicationManager.getApplication().invokeLater {
                         RubynNotifier.processCrashed(project)
                     }
                     scheduleRestart()
                 } else {
                     // Clean exit — reset counter so next explicit start gets full retries.
-                    restartAttempts.set(0)
+                    restartAttempts = 0
                 }
             }
         }
