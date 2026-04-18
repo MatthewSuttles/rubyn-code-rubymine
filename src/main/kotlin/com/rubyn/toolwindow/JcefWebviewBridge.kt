@@ -25,9 +25,10 @@ private val LOG = logger<JcefWebviewBridge>()
  * once [CefLoadHandlerAdapter.onLoadEnd] fires.
  *
  * ## Threading
- * [send] is thread-safe — it may be called from any thread. The CEF load
- * handler fires on a CEF I/O thread; all JS execution is delegated to CEF's
- * own scheduling and is therefore safe to call without additional locking.
+ * [send] is thread-safe — it may be called from any thread. The transition from
+ * "not ready" to "ready" (setting [browserReady] = true and draining the queue)
+ * is performed inside a [readyLock] synchronized block so that concurrent [send]
+ * calls cannot slip a message in between the ready-flag flip and the flush.
  *
  * ## Disposal
  * [dispose] releases the [JBCefJSQuery] and clears all listeners. The
@@ -40,6 +41,9 @@ class JcefWebviewBridge(private val browser: JBCefBrowser) : Disposable {
     // ── Message queue (pre-ready messages) ────────────────────────────────
 
     private val pendingMessages = CopyOnWriteArrayList<String>()
+
+    // Guards the browserReady flag and queue flush so send() cannot interleave.
+    private val readyLock = Any()
 
     @Volatile
     private var browserReady = false
@@ -67,13 +71,20 @@ class JcefWebviewBridge(private val browser: JBCefBrowser) : Disposable {
 
     private val loadHandler = object : CefLoadHandlerAdapter() {
         override fun onLoadEnd(browser: CefBrowser, frame: CefFrame?, httpStatusCode: Int) {
-            if (!frame!!.isMain) return
+            // frame can be null per the CEF API — guard before dereferencing.
+            if (frame == null || !frame.isMain) return
 
             // Inject window.rubynJcef so the webview can call postMessage.
             injectHostObject()
 
-            browserReady = true
-            flushQueue()
+            // Hold readyLock while flipping the flag and draining the queue so
+            // that any concurrent send() either sees browserReady=true and calls
+            // executeReceive() directly, or adds to pendingMessages before we
+            // drain — never after.
+            synchronized(readyLock) {
+                browserReady = true
+                flushQueue()
+            }
         }
     }
 
@@ -108,10 +119,14 @@ class JcefWebviewBridge(private val browser: JBCefBrowser) : Disposable {
             return
         }
 
-        if (!browserReady) {
-            LOG.debug("JcefWebviewBridge: browser not ready — queuing message")
-            pendingMessages.add(json)
-            return
+        // Synchronize on readyLock so we cannot add to pendingMessages *after*
+        // flushQueue() has already drained it in onLoadEnd.
+        synchronized(readyLock) {
+            if (!browserReady) {
+                LOG.debug("JcefWebviewBridge: browser not ready — queuing message")
+                pendingMessages.add(json)
+                return
+            }
         }
 
         executeReceive(json)
@@ -160,16 +175,23 @@ class JcefWebviewBridge(private val browser: JBCefBrowser) : Disposable {
      *
      * The guard prevents crashes when the webview bundle hasn't wired the
      * receiver yet (e.g. if a message races the page load).
+     *
+     * The JSON string is embedded inside a JS double-quoted string literal via
+     * [escapeJsString], which handles all characters that would otherwise break
+     * out of the string or produce invalid JS (backslash, double-quote, newlines,
+     * carriage-returns, tabs, and NUL).
      */
     private fun executeReceive(json: String) {
-        val escaped = json.replace("\\", "\\\\").replace("'", "\\'")
-        val js = "if (typeof window.rubynReceive === 'function') { window.rubynReceive('$escaped'); }"
+        val escaped = escapeJsString(json)
+        val js = "if (typeof window.rubynReceive === 'function') { window.rubynReceive(\"$escaped\"); }"
         browser.cefBrowser.executeJavaScript(js, browser.cefBrowser.url, 0)
         LOG.debug("JcefWebviewBridge → JS: $json")
     }
 
     /**
      * Flushes all messages queued before the browser was ready, in order.
+     *
+     * Must be called while holding [readyLock].
      */
     private fun flushQueue() {
         val snapshot = pendingMessages.toList()
@@ -178,5 +200,23 @@ class JcefWebviewBridge(private val browser: JBCefBrowser) : Disposable {
             LOG.debug("JcefWebviewBridge: flushing ${snapshot.size} queued message(s)")
         }
         snapshot.forEach { executeReceive(it) }
+    }
+
+    companion object {
+        /**
+         * Escapes [value] so it can be safely embedded inside a JS double-quoted
+         * string literal passed to [CefBrowser.executeJavaScript].
+         *
+         * Characters handled: backslash, double-quote, newline, carriage-return,
+         * tab, and NUL. The input is assumed to be valid UTF-8 (JSON is always UTF-8).
+         */
+        internal fun escapeJsString(value: String): String =
+            value
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+                .replace("\t", "\\t")
+                .replace("\u0000", "\\u0000")
     }
 }
