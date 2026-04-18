@@ -72,6 +72,12 @@ private const val MIN_RUBY_MINOR = 1
  * notifier thread while the handler holds its own internal monitor) tries to acquire
  * this lock while [stop]/[restart]/[dispose] hold this lock and block inside
  * [handler.waitFor].
+ *
+ * ## Intentional vs. unexpected exit detection
+ * [stop], [restart], and [dispose] all call [detachHandler] under the lock, which
+ * sets [processHandler] to null before the process actually exits. [processTerminated]
+ * checks [processHandler] == null to detect that the exit was intentional and skips
+ * crash notifications and auto-restart scheduling.
  */
 @Service(Service.Level.PROJECT)
 class RubynProcessService(private val project: Project) : Disposable {
@@ -103,15 +109,21 @@ class RubynProcessService(private val project: Project) : Disposable {
      * Stderr from rubyn-code is written here. The file lives in the IDE log
      * directory so it survives across sessions without cluttering the project.
      *
-     * The writer is kept open for the lifetime of the service to avoid per-line
-     * FileWriter allocation. Access is confined to the OSProcessHandler notifier
-     * thread via [appendToLogFile]; no synchronization needed for writes.
+     * Kept open for the lifetime of the service to avoid per-line FileWriter
+     * allocation. Access is confined to the OSProcessHandler notifier thread
+     * via [appendToLogFile]; no synchronization needed for writes.
+     *
+     * Nullable so that [dispose] can skip closing it when the log was never
+     * opened — avoids opening a file just to immediately close it.
      */
-    private val logWriter: BufferedWriter by lazy {
+    private var logWriter: BufferedWriter? = null
+
+    private fun getOrOpenLogWriter(): BufferedWriter {
+        logWriter?.let { return it }
         val logDir = File(System.getProperty("idea.system.path", System.getProperty("java.io.tmpdir")), "rubyn-logs")
         logDir.mkdirs()
         val logFile = File(logDir, "rubyn-code-${sanitizeProjectName(project.name)}.log")
-        BufferedWriter(FileWriter(logFile, /* append = */ true))
+        return BufferedWriter(FileWriter(logFile, /* append = */ true)).also { logWriter = it }
     }
 
     // ── Public API ────────────────────────────────────────────────────────
@@ -217,9 +229,11 @@ class RubynProcessService(private val project: Project) : Disposable {
         // Phase 2: blocking termination outside the lock.
         awaitTermination(handler)
 
-        // Phase 3: close log writer (no lock needed — the process is already gone,
-        // so the notifier thread will no longer call appendToLogFile).
-        runCatching { logWriter.close() }
+        // Phase 3: close log writer only if it was ever opened. No lock needed —
+        // the process is already gone so the notifier thread will no longer call
+        // appendToLogFile. Checking logWriter != null avoids opening the file
+        // just to close it immediately.
+        runCatching { logWriter?.close() }
     }
 
     // ── Pre-flight checks ─────────────────────────────────────────────────
@@ -280,7 +294,7 @@ class RubynProcessService(private val project: Project) : Disposable {
                 return true
             }
 
-            val result = process.inputStream.bufferedReader().readLine() ?: return true
+            val result = process.inputStream.use { it.bufferedReader().readLine() } ?: return true
 
             // "ruby 3.2.2 (2023-03-30 revision e51014f9c0) [x86_64-linux]"
             val versionString = result.removePrefix("ruby ").substringBefore(" ")
@@ -356,6 +370,10 @@ class RubynProcessService(private val project: Project) : Disposable {
     /**
      * Removes the current handler from state and clears [_isRunning].
      * Returns the handler so the caller can call [awaitTermination] outside the lock.
+     *
+     * Setting [processHandler] to null here is the signal that [processTerminated]
+     * uses to detect an intentional shutdown — it skips crash notifications and
+     * auto-restart when it sees [processHandler] == null.
      *
      * Caller must hold the intrinsic lock.
      */
@@ -455,8 +473,10 @@ class RubynProcessService(private val project: Project) : Disposable {
      */
     private fun appendToLogFile(text: String) {
         try {
-            logWriter.write(text)
-            logWriter.flush()
+            getOrOpenLogWriter().let { writer ->
+                writer.write(text)
+                writer.flush()
+            }
         } catch (e: Exception) {
             LOG.debug("Failed to write to rubyn log file: ${e.message}")
         }
@@ -506,6 +526,17 @@ class RubynProcessService(private val project: Project) : Disposable {
             // Acquire lock only for state mutation. No blocking I/O inside this block.
             synchronized(this@RubynProcessService) {
                 _isRunning.value = false
+
+                // If processHandler is null, stop()/restart()/dispose() detached it
+                // intentionally before this callback fired. The exit was expected —
+                // skip crash notifications and auto-restart to avoid spurious alerts.
+                if (processHandler == null) {
+                    LOG.info("rubyn-code exit was intentional (handler already detached) — no restart")
+                    return
+                }
+
+                // Unexpected exit: clear the handler and decide whether to restart.
+                processHandler = null
 
                 if (disposed) return
 
