@@ -3,11 +3,11 @@ package com.rubyn.diff
 import com.intellij.diff.DiffContentFactory
 import com.intellij.diff.DiffManager
 import com.intellij.diff.requests.SimpleDiffRequest
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VfsUtil
@@ -18,10 +18,12 @@ import com.rubyn.settings.RubynSettingsService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
 import java.nio.charset.StandardCharsets
+import java.util.Collections
 
 private val LOG = logger<RubynDiffManager>()
 
@@ -42,8 +44,8 @@ private const val BYPASS_FLASH_MS = 300L
  * | `default`           | Opens a [SimpleDiffRequest] diff viewer. User manually |
  * |                     | clicks Accept or Reject in the diff toolbar.           |
  * | `acceptEdits`       | Silently applies the edit without opening a viewer.    |
- * | `bypassPermissions` | Applies the edit after a 300 ms "flash" highlight to   |
- * |                     | give the user a moment to notice the change.           |
+ * | `bypassPermissions` | Opens viewer for 300 ms "flash" then auto-accepts.     |
+ * | `planOnly`          | Auto-rejects every edit without opening a viewer.      |
  *
  * ## Multiple edits
  * Each call to [presentEdit] opens a separate diff tab. IntelliJ's built-in
@@ -58,11 +60,30 @@ private const val BYPASS_FLASH_MS = 300L
  *
  * The diff viewer's toolbar actions ([AcceptEditAction] / [RejectEditAction])
  * call [acceptEdit] / [rejectEdit] on this service.
+ *
+ * ## Double-accept guard
+ * [handledEditIds] tracks IDs that have already been accepted or rejected.
+ * This prevents duplicate writes and duplicate bridge notifications if the user
+ * clicks Accept during the bypass flash window at the same time the timer fires.
+ *
+ * ## Lifecycle
+ * Implements [Disposable] so the coroutine scope is cancelled when the project
+ * closes, preventing scope leaks.
  */
 @Service(Service.Level.PROJECT)
-class RubynDiffManager(private val project: Project) {
+class RubynDiffManager(private val project: Project) : Disposable {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /**
+     * Edit IDs that have already been accepted or rejected.
+     *
+     * Checked before every accept/reject to prevent duplicate writes and
+     * duplicate bridge notifications (e.g. user clicks Accept during the
+     * bypass 300 ms flash while the auto-accept timer is also running).
+     */
+    private val handledEditIds: MutableSet<String> =
+        Collections.synchronizedSet(mutableSetOf())
 
     // ── Public API ────────────────────────────────────────────────────────
 
@@ -78,6 +99,7 @@ class RubynDiffManager(private val project: Project) {
         when (mode) {
             "bypassPermissions" -> handleBypass(edit)
             "acceptEdits"       -> handleAutoAccept(edit)
+            "planOnly"          -> handlePlanOnly(edit)
             else                -> handleManual(edit)   // "default"
         }
     }
@@ -85,12 +107,19 @@ class RubynDiffManager(private val project: Project) {
     /**
      * Writes the edit to disk and notifies the bridge of acceptance.
      *
-     * Called from [AcceptEditAction] when the user clicks Accept in the diff toolbar,
-     * or automatically by [handleBypass] / [handleAutoAccept].
+     * Called from [AcceptEditAction] when the user clicks Accept in the diff
+     * toolbar, or automatically by [handleBypass] / [handleAutoAccept].
+     *
+     * Guards against double-invocation via [handledEditIds] — safe to call
+     * concurrently from both the bypass timer and a toolbar click.
      *
      * Runs on the EDT inside a [WriteCommandAction] so the change is undoable.
      */
     fun acceptEdit(edit: ProposedEdit) {
+        if (!handledEditIds.add(edit.editId)) {
+            LOG.info("RubynDiffManager: acceptEdit editId=${edit.editId} already handled — skipping")
+            return
+        }
         LOG.info("RubynDiffManager: acceptEdit editId=${edit.editId}")
         ApplicationManager.getApplication().invokeLater {
             WriteCommandAction.runWriteCommandAction(
@@ -108,10 +137,17 @@ class RubynDiffManager(private val project: Project) {
     /**
      * Discards the edit and notifies the bridge of rejection.
      *
-     * Called from [RejectEditAction] when the user clicks Reject in the diff toolbar.
+     * Called from [RejectEditAction] when the user clicks Reject in the diff
+     * toolbar, or automatically by [handlePlanOnly].
+     *
+     * Guards against double-invocation via [handledEditIds].
      * No disk changes are made.
      */
     fun rejectEdit(edit: ProposedEdit) {
+        if (!handledEditIds.add(edit.editId)) {
+            LOG.info("RubynDiffManager: rejectEdit editId=${edit.editId} already handled — skipping")
+            return
+        }
         LOG.info("RubynDiffManager: rejectEdit editId=${edit.editId}")
         project.getService(RubynProjectService::class.java)?.rejectEdit(edit.editId)
     }
@@ -137,17 +173,31 @@ class RubynDiffManager(private val project: Project) {
     }
 
     /**
+     * `planOnly` mode: automatically rejects every edit without opening a
+     * viewer. The agent is notified via the bridge but no disk changes are made.
+     */
+    private fun handlePlanOnly(edit: ProposedEdit) {
+        rejectEdit(edit)
+    }
+
+    /**
      * `bypassPermissions` mode: briefly opens the diff viewer (300 ms flash)
      * then auto-accepts. The flash gives the user a moment to notice the change
      * before it is committed.
+     *
+     * The auto-accept delay is started **inside** the `invokeLater` block so
+     * the timer only begins once the viewer is actually on-screen. This prevents
+     * a race condition where the EDT is busy and the accept fires before the
+     * viewer has rendered.
      */
     private fun handleBypass(edit: ProposedEdit) {
         ApplicationManager.getApplication().invokeLater {
             showDiffViewer(edit)
-        }
-        scope.launch {
-            delay(BYPASS_FLASH_MS)
-            acceptEdit(edit)
+            // Start the delay only after the viewer is queued for display.
+            scope.launch {
+                delay(BYPASS_FLASH_MS)
+                acceptEdit(edit)
+            }
         }
     }
 
@@ -190,7 +240,7 @@ class RubynDiffManager(private val project: Project) {
             RubynBundle.message("diff.content.before"),
             RubynBundle.message("diff.content.after"))
 
-        // Attach the edit to the request context so toolbar actions can retrieve it.
+        // Attach the edit to the request so toolbar actions can retrieve it.
         request.putUserData(ProposedEditDiffContext.KEY, edit)
 
         DiffManager.getInstance().showDiff(project, request)
@@ -265,5 +315,17 @@ class RubynDiffManager(private val project: Project) {
         val name = File(filePath).name
         return com.intellij.openapi.fileTypes.FileTypeManager.getInstance()
             .getFileTypeByFileName(name)
+    }
+
+    // ── Disposable ────────────────────────────────────────────────────────
+
+    /**
+     * Cancels the coroutine scope when the project closes.
+     *
+     * Prevents scope leaks: any in-flight bypass timers are cancelled cleanly
+     * rather than running after the project has been disposed.
+     */
+    override fun dispose() {
+        scope.cancel()
     }
 }
