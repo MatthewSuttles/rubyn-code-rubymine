@@ -152,11 +152,13 @@ class ProjectDetector(private val project: Project) : Disposable {
         // Fallback: parse asdf .tool-versions
         val toolVersions = File(basePath, ".tool-versions")
         if (toolVersions.exists()) {
-            toolVersions.forEachLine { line ->
-                val parts = line.trim().split(Regex("\\s+"))
-                if (parts.size >= 2 && parts[0] == "ruby") {
-                    return parts[1]
+            val rubyLine = toolVersions.readLines()
+                .firstOrNull { line ->
+                    val parts = line.trim().split(Regex("\\s+"))
+                    parts.size >= 2 && parts[0] == "ruby"
                 }
+            if (rubyLine != null) {
+                return rubyLine.trim().split(Regex("\\s+"))[1]
             }
         }
 
