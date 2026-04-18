@@ -49,6 +49,8 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 
     testImplementation("junit:junit:4.13.2")
+    // Coroutines needed in tests (not on platform classpath during test execution)
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
 }
 
 intellijPlatform {
