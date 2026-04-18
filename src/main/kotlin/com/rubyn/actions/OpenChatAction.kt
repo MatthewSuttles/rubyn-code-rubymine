@@ -1,6 +1,5 @@
 package com.rubyn.actions
 
-import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.wm.ToolWindowManager
 import com.rubyn.RubynBundle
@@ -8,11 +7,11 @@ import com.rubyn.RubynBundle
 /**
  * Action: open (or focus) the Rubyn tool window.
  *
- * Bound to ctrl+shift+R in plugin.xml.
- * Full wiring to the bridge is implemented in Task 12 (Editor Actions).
+ * Bound to Ctrl+Shift+R (Cmd+Shift+R on macOS) in plugin.xml.
+ * Available whenever a Ruby project is open — no editor selection required.
  */
-class OpenChatAction : AnAction(
-    RubynBundle.lazyMessage("action.open.chat")
+class OpenChatAction : AbstractRubynAction(
+    RubynBundle.message("action.open.chat")
 ) {
 
     override fun actionPerformed(event: AnActionEvent) {
@@ -22,7 +21,5 @@ class OpenChatAction : AnAction(
             ?.activate(null)
     }
 
-    override fun update(event: AnActionEvent) {
-        event.presentation.isEnabledAndVisible = event.project != null
-    }
+    // No extra update guard needed — base class already checks for Ruby project.
 }

@@ -1,6 +1,5 @@
 package com.rubyn.actions
 
-import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.rubyn.RubynBundle
@@ -8,21 +7,29 @@ import com.rubyn.RubynBundle
 /**
  * Action: send the current editor selection to Rubyn with a "review" prompt.
  *
- * Full bridge wiring is implemented in Task 12 (Editor Actions).
+ * Disabled when there is no active selection.
  */
-class ReviewCodeAction : AnAction(
-    RubynBundle.lazyMessage("action.review.code")
+class ReviewCodeAction : AbstractRubynAction(
+    RubynBundle.message("action.review.code")
 ) {
 
     override fun actionPerformed(event: AnActionEvent) {
+        val project = event.project ?: return
         val editor = event.getData(CommonDataKeys.EDITOR) ?: return
         val selectedText = editor.selectionModel.selectedText ?: return
-        // TODO (Task 12): send selectedText to RubynProjectService with review prompt
+
+        val context = buildEditorContext(event)
+        val prompt = RubynBundle.message("prompt.review.code", selectedText)
+
+        launchPrompt(project, prompt, context)
     }
 
     override fun update(event: AnActionEvent) {
-        val editor = event.getData(CommonDataKeys.EDITOR)
-        val hasSelection = editor?.selectionModel?.hasSelection() == true
+        super.update(event)
+        if (!event.presentation.isEnabledAndVisible) return
+
+        val hasSelection = event.getData(CommonDataKeys.EDITOR)
+            ?.selectionModel?.hasSelection() == true
         event.presentation.isEnabledAndVisible = hasSelection
     }
 }
