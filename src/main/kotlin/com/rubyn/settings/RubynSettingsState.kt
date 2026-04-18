@@ -1,7 +1,5 @@
 package com.rubyn.settings
 
-import kotlinx.serialization.Serializable
-
 /**
  * Persistent state for the Rubyn plugin settings.
  *
@@ -17,7 +15,6 @@ import kotlinx.serialization.Serializable
  * @property permissionMode  Permission mode sent to rubyn-code on connect
  *                           ("default", "acceptEdits", "bypassPermissions").
  */
-@Serializable
 data class RubynSettingsState(
     var executablePath: String = "",
     var provider: String = "anthropic",

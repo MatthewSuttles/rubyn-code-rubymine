@@ -1,5 +1,6 @@
 package com.rubyn.settings
 
+import com.rubyn.RubynBundle
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.ui.TextFieldWithBrowseButton
@@ -50,19 +51,19 @@ class RubynSettingsPanel {
     private fun buildPanel(): JPanel = panel {
 
         // ── Section: General ─────────────────────────────────────────────
-        group("General") {
-            row("Executable path:") {
+        group(RubynBundle.message("settings.rubyn.section.general")) {
+            row(RubynBundle.message("settings.rubyn.executable.path") + ":") {
                 executableField = TextFieldWithBrowseButton().also { field ->
                     field.addBrowseFolderListener(
-                        "Select rubyn-code Executable",
-                        "Choose the rubyn-code binary",
+                        RubynBundle.message("settings.rubyn.executable.path.browse.title"),
+                        RubynBundle.message("settings.rubyn.executable.path.browse.description"),
                         null,
                         FileChooserDescriptorFactory.createSingleFileNoJarsDescriptor(),
                     )
                 }
                 cell(executableField)
                     .align(AlignX.FILL)
-                    .comment("Full path to the rubyn-code CLI binary (e.g. /usr/local/bin/rubyn-code)")
+                    .comment(RubynBundle.message("settings.rubyn.executable.path.comment"))
                     .validationOnApply {
                         validateExecutablePath(executableField.text)
                     }
@@ -70,52 +71,48 @@ class RubynSettingsPanel {
         }
 
         // ── Section: Provider & Model ─────────────────────────────────────
-        group("Provider & Model") {
-            row("Provider:") {
+        group(RubynBundle.message("settings.rubyn.section.provider.model")) {
+            row(RubynBundle.message("settings.rubyn.provider") + ":") {
                 providerCombo = ComboBox(RubynSettingsState.PROVIDERS.toTypedArray())
                 cell(providerCombo)
-                    .comment("AI provider to use for code assistance")
+                    .comment(RubynBundle.message("settings.rubyn.provider.comment"))
 
                 providerCombo.addActionListener {
                     refreshModelCombo(providerCombo.selectedItem as? String ?: "anthropic")
                 }
             }
-            row("Model:") {
+            row(RubynBundle.message("settings.rubyn.model.combo") + ":") {
                 modelCombo = ComboBox()
                 cell(modelCombo)
-                    .comment("Model within the selected provider")
+                    .comment(RubynBundle.message("settings.rubyn.model.combo.comment"))
             }
         }
 
         // ── Section: Budget & Limits ──────────────────────────────────────
-        group("Budget & Limits") {
-            row("Token budget per session:") {
+        group(RubynBundle.message("settings.rubyn.section.budget")) {
+            row(RubynBundle.message("settings.rubyn.token.budget") + ":") {
                 tokenSpinner = JSpinner(SpinnerNumberModel(0, 0, Int.MAX_VALUE, 1000))
                 cell(tokenSpinner)
-                    .comment("Maximum tokens allowed per session. Set to 0 for unlimited.")
+                    .comment(RubynBundle.message("settings.rubyn.token.budget.comment"))
             }
-            row("Cost budget per session (USD):") {
+            row(RubynBundle.message("settings.rubyn.cost.budget") + ":") {
                 costSpinner = JSpinner(SpinnerNumberModel(0.0, 0.0, 1_000.0, 0.5))
                 cell(costSpinner)
-                    .comment("Maximum USD spend per session. Set to 0.00 for unlimited.")
+                    .comment(RubynBundle.message("settings.rubyn.cost.budget.comment"))
             }
-            row("Permission mode:") {
+            row(RubynBundle.message("settings.rubyn.permission.mode") + ":") {
                 permissionCombo = ComboBox(RubynSettingsState.PERMISSION_MODES.toTypedArray())
                 cell(permissionCombo)
-                    .comment(
-                        "default — prompt for each action  |  " +
-                            "acceptEdits — auto-accept file edits  |  " +
-                            "bypassPermissions — no prompts (use with caution)"
-                    )
+                    .comment(RubynBundle.message("settings.rubyn.permission.mode.comment"))
             }
         }
 
         // ── Section: Status ───────────────────────────────────────────────
-        group("Status") {
+        group(RubynBundle.message("settings.rubyn.section.status")) {
             row {
-                statusLabel = JLabel("Agent status will appear here once connected.")
+                statusLabel = JLabel(RubynBundle.message("settings.rubyn.status.placeholder"))
                 cell(statusLabel)
-                    .comment("Live status is populated by RubynProjectService (Task 3).")
+                    .comment(RubynBundle.message("settings.rubyn.status.placeholder.comment"))
             }
         }
     }
@@ -176,17 +173,17 @@ class RubynSettingsPanel {
     private fun validateExecutablePath(path: String): ValidationInfo? {
         val trimmed = path.trim()
         if (trimmed.isEmpty()) {
-            return ValidationInfo("Executable path must not be empty", executableField)
+            return ValidationInfo(RubynBundle.message("validation.rubyn.executable.empty"), executableField)
         }
         val file = File(trimmed)
         if (!file.isAbsolute) {
-            return ValidationInfo("Path must be absolute", executableField)
+            return ValidationInfo(RubynBundle.message("validation.rubyn.executable.not.absolute"), executableField)
         }
         if (!file.exists()) {
-            return ValidationInfo("File does not exist: $trimmed", executableField)
+            return ValidationInfo(RubynBundle.message("validation.rubyn.executable.not.found", trimmed), executableField)
         }
         if (!file.canExecute()) {
-            return ValidationInfo("File is not executable: $trimmed", executableField)
+            return ValidationInfo(RubynBundle.message("validation.rubyn.executable.not.executable", trimmed), executableField)
         }
         return null
     }

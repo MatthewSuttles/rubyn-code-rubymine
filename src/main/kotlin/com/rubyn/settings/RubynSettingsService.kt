@@ -49,7 +49,7 @@ class RubynSettingsService : PersistentStateComponent<RubynSettingsState> {
      * Returns a snapshot of the current settings.
      * Callers that need to react to changes should subscribe to [TOPIC].
      */
-    fun settings(): RubynSettingsState = state
+    fun settings(): RubynSettingsState = state.copy()
 
     /**
      * Applies [newState] as the current settings and notifies all [TOPIC]

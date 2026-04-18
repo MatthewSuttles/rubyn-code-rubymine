@@ -32,9 +32,6 @@
             conditionClass="com.rubyn.toolwindow.RubynToolWindowCondition"/>
 
         <!-- ── Application-level services ──────────────────────────────── -->
-        <applicationService
-            serviceInterface="com.rubyn.settings.RubynSettingsService"
-            serviceImplementation="com.rubyn.settings.RubynSettingsService"/>
 
         <!-- ── Project-level services ───────────────────────────────────── -->
         <projectService
