@@ -1,7 +1,6 @@
 package com.rubyn.settings
 
 import com.intellij.openapi.components.PersistentStateComponent
-import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
 import com.intellij.openapi.diagnostic.logger
@@ -24,7 +23,6 @@ private val LOG = logger<RubynSettingsService>()
  *     .subscribe(RubynSettingsService.TOPIC, listener)
  * ```
  */
-@Service(Service.Level.APP)
 @State(
     name = "RubynSettings",
     storages = [Storage("rubyn-code.xml")],

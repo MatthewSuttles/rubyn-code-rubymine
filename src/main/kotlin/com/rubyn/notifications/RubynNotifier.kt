@@ -3,6 +3,7 @@ package com.rubyn.notifications
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.notification.Notifications
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
 import com.rubyn.RubynBundle
@@ -70,7 +71,8 @@ object RubynNotifier {
     /**
      * Error: rubyn-code process exited unexpectedly while the IDE was open.
      *
-     * Actions: Restart
+     * Actions: Restart — dispatched on a pooled thread so [RubynProcessService.restart]
+     * can call [RubynProcessService.checkRubyVersion] without blocking the EDT.
      */
     fun processCrashed(project: Project) {
         val notification = group().createNotification(
@@ -82,7 +84,10 @@ object RubynNotifier {
             com.intellij.notification.NotificationAction.createSimpleExpiring(
                 RubynBundle.message("notification.action.restart")
             ) {
-                project.getService(RubynProcessService::class.java)?.restart()
+                // restart() may block up to 5s on ruby --version; must not run on EDT.
+                ApplicationManager.getApplication().executeOnPooledThread {
+                    project.getService(RubynProcessService::class.java)?.restart()
+                }
             }
         )
         Notifications.Bus.notify(notification, project)

@@ -16,6 +16,7 @@ import com.rubyn.settings.RubynSettingsService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.io.BufferedWriter
 import java.io.File
 import java.io.FileWriter
 import java.nio.charset.Charset
@@ -59,6 +60,13 @@ private const val MIN_RUBY_MINOR = 1
  *
  * Auth errors detected in stderr output trigger [RubynNotifier.notAuthenticated]
  * and suppress further auto-restart.
+ *
+ * ## Thread safety
+ * All mutable state is guarded by the intrinsic lock (every method that reads or
+ * writes [processHandler], [executablePath], [authErrorDetected], [pendingRestart],
+ * or [disposed] is [Synchronized]). [scheduleRestart] is only ever called while
+ * the caller already holds the lock. The scheduler callback re-acquires the lock
+ * before touching any state, so there is no lock re-entry issue.
  */
 @Service(Service.Level.PROJECT)
 class RubynProcessService(private val project: Project) : Disposable {
@@ -99,11 +107,16 @@ class RubynProcessService(private val project: Project) : Disposable {
     /**
      * Stderr from rubyn-code is written here. The file lives in the IDE log
      * directory so it survives across sessions without cluttering the project.
+     *
+     * The writer is kept open for the lifetime of the service to avoid per-line
+     * FileWriter allocation. Access is confined to the process listener thread
+     * (the OSProcessHandler notifier thread).
      */
-    private val logFile: File by lazy {
+    private val logWriter: BufferedWriter by lazy {
         val logDir = File(System.getProperty("idea.system.path", System.getProperty("java.io.tmpdir")), "rubyn-logs")
         logDir.mkdirs()
-        File(logDir, "rubyn-code-${sanitizeProjectName(project.name)}.log")
+        val logFile = File(logDir, "rubyn-code-${sanitizeProjectName(project.name)}.log")
+        BufferedWriter(FileWriter(logFile, /* append = */ true))
     }
 
     // ── Public API ────────────────────────────────────────────────────────
@@ -153,6 +166,10 @@ class RubynProcessService(private val project: Project) : Disposable {
 
     /**
      * Stops then starts the process. Thread-safe.
+     *
+     * Must be dispatched off the EDT when called in response to user interaction
+     * (e.g. a notification action button) because [checkRubyVersion] can block
+     * up to 5 seconds waiting for `ruby --version` to complete.
      */
     @Synchronized
     fun restart() {
@@ -176,6 +193,7 @@ class RubynProcessService(private val project: Project) : Disposable {
         cancelPendingRestart()
         scheduler.shutdownNow()
         terminateProcess()
+        runCatching { logWriter.close() }
     }
 
     // ── Pre-flight checks ─────────────────────────────────────────────────
@@ -184,8 +202,8 @@ class RubynProcessService(private val project: Project) : Disposable {
      * Returns the absolute path to the rubyn-code executable or null if not found.
      *
      * Resolution order:
-     *   1. `executablePath` from [RubynSettingsService] (if non-blank and the file exists).
-     *   2. PATH search for `rubyn-code`.
+     *   1. executablePath from [RubynSettingsService] (if non-blank and the file exists).
+     *   2. PATH search for rubyn-code.
      */
     private fun resolveExecutable(): String? {
         val configured = RubynSettingsService.getInstance().settings().executablePath.trim()
@@ -215,18 +233,28 @@ class RubynProcessService(private val project: Project) : Disposable {
      * Returns true if the Ruby version in the project meets the minimum requirement.
      * Shows a warning notification and returns false when the version is too old.
      * Returns true (permissive) if the version cannot be determined.
+     *
+     * Note: this method may block up to 5 seconds waiting for ruby --version.
+     * It must not be called on the EDT. It is only called from [start] and [restart],
+     * which must themselves be dispatched off the EDT when triggered from UI actions.
      */
     private fun checkRubyVersion(): Boolean {
         val rubyBinary = findRubyBinary() ?: return true // can't check — proceed
 
         return try {
-            val result = ProcessBuilder(rubyBinary, "--version")
+            val process = ProcessBuilder(rubyBinary, "--version")
                 .redirectErrorStream(true)
                 .start()
-                .also { it.waitFor(5, TimeUnit.SECONDS) }
-                .inputStream
-                .bufferedReader()
-                .readLine() ?: return true
+
+            val finished = process.waitFor(5, TimeUnit.SECONDS)
+            if (!finished) {
+                // Timed out — destroy the process to avoid a leak, then proceed.
+                process.destroyForcibly()
+                LOG.info("ruby --version timed out — skipping version check")
+                return true
+            }
+
+            val result = process.inputStream.bufferedReader().readLine() ?: return true
 
             // "ruby 3.2.2 (2023-03-30 revision e51014f9c0) [x86_64-linux]"
             val versionString = result.removePrefix("ruby ").substringBefore(" ")
@@ -299,6 +327,8 @@ class RubynProcessService(private val project: Project) : Disposable {
     /**
      * Sends SIGTERM and waits [GRACEFUL_STOP_TIMEOUT_MS] for the process to
      * exit before force-destroying it. Sets [_isRunning] to false.
+     *
+     * Caller must hold the intrinsic lock.
      */
     private fun terminateProcess() {
         val handler = processHandler ?: return
@@ -307,7 +337,7 @@ class RubynProcessService(private val project: Project) : Disposable {
 
         if (handler.isProcessTerminated) return
 
-        LOG.info("Terminating rubyn-code process…")
+        LOG.info("Terminating rubyn-code process...")
         try {
             handler.destroyProcess()
             if (!handler.waitFor(GRACEFUL_STOP_TIMEOUT_MS)) {
@@ -324,6 +354,12 @@ class RubynProcessService(private val project: Project) : Disposable {
 
     // ── Auto-restart ──────────────────────────────────────────────────────
 
+    /**
+     * Schedules an automatic restart after the appropriate back-off delay.
+     *
+     * Must be called while holding the intrinsic lock. The scheduled callback
+     * re-acquires the lock before touching any state.
+     */
     private fun scheduleRestart() {
         if (disposed) return
         if (authErrorDetected) {
@@ -341,12 +377,14 @@ class RubynProcessService(private val project: Project) : Disposable {
         LOG.info("Scheduling rubyn-code restart (attempt $attempt/$MAX_RESTART_ATTEMPTS) in ${delayMs}ms")
 
         pendingRestart = scheduler.schedule({
-            if (!disposed) {
-                val exe = executablePath
-                if (exe != null) {
-                    synchronized(this) { spawnProcess(exe) }
-                } else {
-                    synchronized(this) { start() }
+            synchronized(this) {
+                if (!disposed) {
+                    val exe = executablePath
+                    if (exe != null) {
+                        spawnProcess(exe)
+                    } else {
+                        start()
+                    }
                 }
             }
         }, delayMs, TimeUnit.MILLISECONDS)
@@ -361,7 +399,8 @@ class RubynProcessService(private val project: Project) : Disposable {
 
     private fun appendToLogFile(text: String) {
         try {
-            FileWriter(logFile, /* append = */ true).use { it.write(text) }
+            logWriter.write(text)
+            logWriter.flush()
         } catch (e: Exception) {
             LOG.debug("Failed to write to rubyn log file: ${e.message}")
         }
@@ -369,8 +408,12 @@ class RubynProcessService(private val project: Project) : Disposable {
 
     private fun detectAuthError(line: String): Boolean {
         val lower = line.lowercase()
-        return lower.contains("auth") && (lower.contains("error") || lower.contains("invalid") ||
-            lower.contains("missing") || lower.contains("unauthorized") || lower.contains("forbidden"))
+        // Require explicit "unauthorized" / "forbidden" or the combination of
+        // "auth" + a failure keyword to reduce false-positive risk.
+        return lower.contains("unauthorized") ||
+            lower.contains("forbidden") ||
+            (lower.contains("authentication") && lower.contains("failed")) ||
+            lower.contains("auth error")
     }
 
     // ── Process listener ──────────────────────────────────────────────────
@@ -398,19 +441,21 @@ class RubynProcessService(private val project: Project) : Disposable {
             val exitCode = event.exitCode
             LOG.info("rubyn-code exited with code $exitCode for project '${project.name}'")
 
-            _isRunning.value = false
+            synchronized(this@RubynProcessService) {
+                _isRunning.value = false
 
-            if (disposed) return
+                if (disposed) return
 
-            if (exitCode != 0) {
-                LOG.warn("rubyn-code exited unexpectedly (code=$exitCode)")
-                ApplicationManager.getApplication().invokeLater {
-                    RubynNotifier.processCrashed(project)
+                if (exitCode != 0) {
+                    LOG.warn("rubyn-code exited unexpectedly (code=$exitCode)")
+                    ApplicationManager.getApplication().invokeLater {
+                        RubynNotifier.processCrashed(project)
+                    }
+                    scheduleRestart()
+                } else {
+                    // Clean exit — reset counter so next explicit start gets full retries.
+                    restartAttempts.set(0)
                 }
-                scheduleRestart()
-            } else {
-                // Clean exit — reset counter so next explicit start gets full retries
-                restartAttempts.set(0)
             }
         }
     }
