@@ -31,6 +31,15 @@ private val LOG = logger<RubynDiffManager>()
 private const val BYPASS_FLASH_MS = 300L
 
 /**
+ * Maximum number of edit IDs retained in the handled-edits guard set.
+ *
+ * Once this limit is reached the oldest entry is evicted before a new one is
+ * inserted, keeping memory use constant regardless of how many edits arrive
+ * during a long IDE session.
+ */
+private const val HANDLED_IDS_MAX = 1_000
+
+/**
  * Project-level service that presents proposed file edits to the user.
  *
  * Registered in plugin.xml as a project service. Obtain via:
@@ -81,9 +90,19 @@ class RubynDiffManager(private val project: Project) : Disposable {
      * Checked before every accept/reject to prevent duplicate writes and
      * duplicate bridge notifications (e.g. user clicks Accept during the
      * bypass 300 ms flash while the auto-accept timer is also running).
+     *
+     * Capped at [HANDLED_IDS_MAX] entries. Once full, the oldest entry is
+     * evicted before each insertion so memory use stays bounded.
      */
     private val handledEditIds: MutableSet<String> =
-        Collections.synchronizedSet(mutableSetOf())
+        Collections.synchronizedSet(
+            object : LinkedHashSet<String>() {
+                override fun add(element: String): Boolean {
+                    if (size >= HANDLED_IDS_MAX) remove(iterator().next())
+                    return super.add(element)
+                }
+            }
+        )
 
     // ── Public API ────────────────────────────────────────────────────────
 

@@ -13,7 +13,7 @@ package com.rubyn.settings
  * @property tokenBudget     Maximum tokens per session (0 = unlimited).
  * @property costBudget      Maximum USD cost per session (0.0 = unlimited).
  * @property permissionMode  Permission mode sent to rubyn-code on connect
- *                           ("default", "acceptEdits", "bypassPermissions").
+ *                           ("default", "acceptEdits", "bypassPermissions", "planOnly").
  */
 data class RubynSettingsState(
     var executablePath: String = "",
@@ -45,6 +45,6 @@ data class RubynSettingsState(
 
         val PROVIDERS: List<String> = MODELS_BY_PROVIDER.keys.toList()
 
-        val PERMISSION_MODES: List<String> = listOf("default", "acceptEdits", "bypassPermissions")
+        val PERMISSION_MODES: List<String> = listOf("default", "acceptEdits", "bypassPermissions", "planOnly")
     }
 }
