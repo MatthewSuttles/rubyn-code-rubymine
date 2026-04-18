@@ -3,6 +3,10 @@
  *
  * Shows the tool name + args, an optional mini diff, and Approve / Deny
  * buttons. Once a decision is made the card becomes read-only.
+ *
+ * decided state is derived from props first, then from local user action.
+ * This ensures host-side status updates (e.g. the bridge resolves a pending
+ * call externally) are always reflected in the UI without requiring a remount.
  */
 
 import React, { useState } from "react";
@@ -54,17 +58,26 @@ function MiniDiff({ before, after, path }: { before: string; after: string; path
 }
 
 const ToolApproval: React.FC<Props> = ({ toolCall, onApprove, onDeny }) => {
-  const [decided, setDecided] = useState<"approved" | "denied" | null>(
-    toolCall.status === "pending" ? null : toolCall.status
-  );
+  // localDecision tracks decisions made in this render session (optimistic UI).
+  // We derive the effective decided value from props first — if the host has
+  // already resolved the call, that takes precedence over local state. This
+  // prevents the card from staying in "pending" state when toolCall.status
+  // changes after mount (e.g. host resolves the call externally).
+  const [localDecision, setLocalDecision] = useState<"approved" | "denied" | null>(null);
+
+  const propDecided =
+    toolCall.status !== "pending" ? (toolCall.status as "approved" | "denied") : null;
+
+  // Prop always wins; local decision is the fallback for optimistic feedback.
+  const decided = propDecided ?? localDecision;
 
   const handleApprove = () => {
-    setDecided("approved");
+    setLocalDecision("approved");
     onApprove();
   };
 
   const handleDeny = () => {
-    setDecided("denied");
+    setLocalDecision("denied");
     onDeny();
   };
 
