@@ -89,6 +89,7 @@
 
             <add-to-group group-id="ToolsMenu" anchor="last"/>
 
+            <!-- Open Chat — Cmd+Shift+R / Ctrl+Shift+R -->
             <action
                 id="com.rubyn.actions.OpenChat"
                 class="com.rubyn.actions.OpenChatAction"
@@ -100,25 +101,53 @@
 
             <separator/>
 
+            <!-- Explain Selection — Cmd+Shift+E / Ctrl+Shift+E -->
             <action
                 id="com.rubyn.actions.ExplainCode"
                 class="com.rubyn.actions.ExplainCodeAction"
                 text="Explain Selection"
-                description="Ask Rubyn to explain the selected code">
+                description="Ask Rubyn to explain the selected code or current file">
                 <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift E"/>
             </action>
 
+            <!-- Refactor with Rubyn — Cmd+Shift+F / Ctrl+Shift+F -->
             <action
                 id="com.rubyn.actions.RefactorCode"
                 class="com.rubyn.actions.RefactorCodeAction"
                 text="Refactor with Rubyn"
-                description="Ask Rubyn to refactor the selected code"/>
+                description="Ask Rubyn to refactor the selected code">
+                <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift F"/>
+            </action>
 
+            <!-- Review Selection -->
             <action
                 id="com.rubyn.actions.ReviewCode"
                 class="com.rubyn.actions.ReviewCodeAction"
                 text="Review with Rubyn"
                 description="Ask Rubyn to review the selected code"/>
+
+            <!-- Generate Specs -->
+            <action
+                id="com.rubyn.actions.GenerateSpecs"
+                class="com.rubyn.actions.GenerateSpecsAction"
+                text="Generate Specs"
+                description="Ask Rubyn to generate RSpec specs for the current Ruby file"/>
+
+            <separator/>
+
+            <!-- Review PR -->
+            <action
+                id="com.rubyn.actions.ReviewPR"
+                class="com.rubyn.actions.ReviewPRAction"
+                text="Review Pull Request…"
+                description="Ask Rubyn to review a pull request by branch name"/>
+
+            <!-- Select Model -->
+            <action
+                id="com.rubyn.actions.SelectModel"
+                class="com.rubyn.actions.SelectModelAction"
+                text="Select Model…"
+                description="Choose the AI model used for Rubyn prompts"/>
 
         </group>
 
@@ -134,6 +163,7 @@
             <reference ref="com.rubyn.actions.ExplainCode"/>
             <reference ref="com.rubyn.actions.RefactorCode"/>
             <reference ref="com.rubyn.actions.ReviewCode"/>
+            <reference ref="com.rubyn.actions.GenerateSpecs"/>
             <reference ref="com.rubyn.actions.OpenChat"/>
 
         </group>
