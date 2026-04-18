@@ -1,0 +1,225 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Rubyn JSON-RPC 2.0 Protocol",
+  "description": "Protocol definition for communication between the RubyMine plugin and the rubyn-code agent process over stdio.",
+  "version": "1.0.0",
+  "transport": {
+    "type": "stdio",
+    "framing": "newline-delimited JSON (NDJSON)",
+    "encoding": "UTF-8"
+  },
+  "requests": {
+    "initialize": {
+      "direction": "plugin → agent",
+      "description": "Sent once after the process starts. Must be the first request.",
+      "params": {
+        "client_version": "string — semver of the plugin (e.g. '0.1.0')",
+        "project_dir": "string — absolute path to the open project"
+      },
+      "result": {
+        "agent_version": "string — semver of rubyn-code",
+        "capabilities": {
+          "streaming": "boolean",
+          "tool_use": "boolean",
+          "file_edits": "boolean"
+        }
+      }
+    },
+    "shutdown": {
+      "direction": "plugin → agent",
+      "description": "Graceful shutdown request. Agent should flush and exit.",
+      "params": null,
+      "result": null
+    },
+    "session/start": {
+      "direction": "plugin → agent",
+      "description": "Creates or resumes a chat session.",
+      "params": {
+        "session_id": "string — UUID",
+        "model": "string? — model override (e.g. 'claude-3-5-sonnet')"
+      },
+      "result": null
+    },
+    "session/end": {
+      "direction": "plugin → agent",
+      "description": "Ends a session and releases resources.",
+      "params": {
+        "session_id": "string"
+      },
+      "result": null
+    },
+    "session/list": {
+      "direction": "plugin → agent",
+      "description": "Lists all active sessions.",
+      "params": null,
+      "result": {
+        "sessions": [
+          {
+            "session_id": "string",
+            "label": "string",
+            "created_at": "string (ISO-8601)",
+            "active": "boolean"
+          }
+        ]
+      }
+    },
+    "prompt/send": {
+      "direction": "plugin → agent",
+      "description": "Sends a user prompt. The agent streams the response via stream/text and stream/done notifications.",
+      "params": {
+        "session_id": "string",
+        "message_id": "string — unique ID for this turn",
+        "text": "string — user message text",
+        "context": {
+          "file_path": "string?",
+          "selected_text": "string?",
+          "language": "string?",
+          "cursor_line": "integer?"
+        }
+      },
+      "result": null
+    },
+    "prompt/cancel": {
+      "direction": "plugin → agent",
+      "description": "Cancels an in-progress prompt. Agent stops streaming.",
+      "params": {
+        "session_id": "string",
+        "message_id": "string"
+      },
+      "result": null
+    },
+    "review/request": {
+      "direction": "plugin → agent",
+      "description": "Requests a code review for a file.",
+      "params": {
+        "session_id": "string",
+        "file_path": "string",
+        "content": "string",
+        "focus": "string? — review focus hint (e.g. 'performance', 'security')"
+      },
+      "result": null
+    },
+    "tool/approve": {
+      "direction": "plugin → agent",
+      "description": "Approves a pending tool call from the agent.",
+      "params": {
+        "tool_call_id": "string",
+        "session_id": "string"
+      },
+      "result": null
+    },
+    "tool/deny": {
+      "direction": "plugin → agent",
+      "description": "Denies a pending tool call from the agent.",
+      "params": {
+        "tool_call_id": "string",
+        "session_id": "string"
+      },
+      "result": null
+    },
+    "file/edit/approve": {
+      "direction": "plugin → agent",
+      "description": "Approves a proposed file edit.",
+      "params": {
+        "edit_id": "string",
+        "session_id": "string"
+      },
+      "result": null
+    },
+    "file/edit/deny": {
+      "direction": "plugin → agent",
+      "description": "Denies a proposed file edit.",
+      "params": {
+        "edit_id": "string",
+        "session_id": "string"
+      },
+      "result": null
+    }
+  },
+  "notifications": {
+    "stream/text": {
+      "direction": "agent → plugin",
+      "description": "A streaming text delta from the agent.",
+      "params": {
+        "session_id": "string",
+        "message_id": "string",
+        "delta": "string — incremental text chunk"
+      }
+    },
+    "stream/done": {
+      "direction": "agent → plugin",
+      "description": "Signals that streaming is complete for a message.",
+      "params": {
+        "session_id": "string",
+        "message_id": "string",
+        "content": "string — full assembled content"
+      }
+    },
+    "tool/use": {
+      "direction": "agent → plugin",
+      "description": "Agent wants to call a tool and awaits approval.",
+      "params": {
+        "session_id": "string",
+        "tool_call_id": "string",
+        "name": "string — tool name",
+        "args": "object — tool arguments",
+        "diff": {
+          "path": "string",
+          "before": "string",
+          "after": "string"
+        }
+      }
+    },
+    "file/edit": {
+      "direction": "agent → plugin",
+      "description": "Agent proposes a file edit and awaits approval.",
+      "params": {
+        "session_id": "string",
+        "edit_id": "string",
+        "diff": {
+          "path": "string",
+          "before": "string",
+          "after": "string"
+        }
+      }
+    },
+    "agent/status": {
+      "direction": "agent → plugin",
+      "description": "Agent lifecycle status update.",
+      "params": {
+        "status": "string — 'idle' | 'thinking' | 'streaming' | 'waiting_approval'",
+        "session_id": "string?"
+      }
+    },
+    "session/cost": {
+      "direction": "agent → plugin",
+      "description": "Cumulative token usage and cost for a session.",
+      "params": {
+        "session_id": "string",
+        "input_tokens": "integer",
+        "output_tokens": "integer",
+        "cost_usd": "number"
+      }
+    },
+    "agent/error": {
+      "direction": "agent → plugin",
+      "description": "Unrecoverable error from the agent not tied to a specific request.",
+      "params": {
+        "message": "string",
+        "code": "integer?",
+        "session_id": "string?"
+      }
+    }
+  },
+  "error_codes": {
+    "-32700": "Parse error — invalid JSON",
+    "-32600": "Invalid request",
+    "-32601": "Method not found",
+    "-32602": "Invalid params",
+    "-32603": "Internal error",
+    "1001": "Not initialized",
+    "1002": "Session not found",
+    "1003": "Prompt already in progress",
+    "1004": "Authentication error"
+  }
+}
