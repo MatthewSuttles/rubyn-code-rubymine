@@ -187,6 +187,25 @@ class RubynProcessService(private val project: Project) : Disposable {
     }
 
     /**
+     * Returns the stdin and stdout streams of the running process, or null if
+     * the process is not currently alive.
+     *
+     * The caller (typically [com.rubyn.bridge.RubynBridge]) owns these streams
+     * for reading/writing — do not close them directly; dispose the bridge and
+     * then call [stop] to tear down the process cleanly.
+     *
+     * Thread-safe — snaps the handler under the lock.
+     */
+    fun getProcessStreams(): ProcessStreams? {
+        val handler = synchronized(this) { processHandler } ?: return null
+        if (handler.isProcessTerminated) return null
+        return ProcessStreams(
+            stdin = handler.process.outputStream,
+            stdout = handler.process.inputStream,
+        )
+    }
+
+    /**
      * Stops then starts the process. Thread-safe.
      *
      * Must be dispatched off the EDT when called in response to user interaction
@@ -563,3 +582,16 @@ class RubynProcessService(private val project: Project) : Disposable {
     private fun sanitizeProjectName(name: String): String =
         name.replace(Regex("[^A-Za-z0-9._-]"), "_").take(64)
 }
+
+// ── Process stream handle ─────────────────────────────────────────────────────
+
+/**
+ * Pair of I/O streams for the running rubyn-code process.
+ *
+ * [stdin] is the process's input — write JSON-RPC requests here.
+ * [stdout] is the process's output — read JSON-RPC responses/notifications here.
+ */
+data class ProcessStreams(
+    val stdin: java.io.OutputStream,
+    val stdout: java.io.InputStream,
+)
