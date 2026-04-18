@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import java.awt.event.MouseEvent
 import javax.swing.Icon
+import javax.swing.SwingConstants
 
 private val LOG = logger<RubynStatusBarWidget>()
 
@@ -32,7 +33,7 @@ private val LOG = logger<RubynStatusBarWidget>()
  *
  * ## Presentation
  * Implements both [StatusBarWidget.IconPresentation] (left-edge icon that
- * reflects agent activity state) and [StatusBarWidget.MultipleTextValuesPresentation]
+ * reflects agent activity state) and [StatusBarWidget.TextPresentation]
  * (text label that changes with agent status).
  *
  * ## State subscription
@@ -56,7 +57,7 @@ private val LOG = logger<RubynStatusBarWidget>()
 class RubynStatusBarWidget(private val project: Project) :
     StatusBarWidget,
     StatusBarWidget.IconPresentation,
-    StatusBarWidget.MultipleTextValuesPresentation {
+    StatusBarWidget.TextPresentation {
 
     companion object {
         const val WIDGET_ID = "com.rubyn.statusbar.RubynStatusBarWidget"
@@ -97,9 +98,11 @@ class RubynStatusBarWidget(private val project: Project) :
 
     override fun getIcon(): Icon = iconFor(currentStatus)
 
-    // -- MultipleTextValuesPresentation ------------------------------------
+    // -- TextPresentation -------------------------------------------------
 
-    override fun getSelectedValue(): String = labelFor(currentStatus)
+    override fun getText(): String = labelFor(currentStatus)
+
+    override fun getAlignment(): Float = SwingConstants.LEFT.toFloat()
 
     override fun getTooltipText(): String = buildTooltip(currentStatus, currentCost)
 

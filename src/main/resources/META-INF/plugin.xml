@@ -62,7 +62,7 @@
 
         <!-- ── Status Bar Widget ────────────────────────────────────────── -->
         <statusBarWidgetFactory
-            id="com.rubyn.statusbar.RubynStatusBarWidgetFactory"
+            id="com.rubyn.statusbar.RubynStatusBarWidget"
             implementation="com.rubyn.statusbar.RubynStatusBarWidgetFactory"
             order="after Position"/>
 
