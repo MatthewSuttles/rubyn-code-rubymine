@@ -77,6 +77,13 @@ class RubynChatPanel(
     private val service: RubynProjectService? =
         project.getService(RubynProjectService::class.java)
 
+    // ── Pending-approval tracking (diff-based to avoid duplicate sends) ───
+
+    // Tracks the set of toolCallIds that have already been sent to the webview
+    // as "pending" tool-call messages. Used to diff successive emissions from
+    // pendingApprovals so we only push new additions and notify on removals.
+    private val sentApprovalIds = mutableSetOf<String>()
+
     // ── Init ──────────────────────────────────────────────────────────────
 
     init {
@@ -189,6 +196,10 @@ class RubynChatPanel(
     /**
      * Observes [RubynProjectService] StateFlows and forwards updates to the
      * webview as JSON messages.
+     *
+     * All dynamic string values embedded in hand-rolled JSON are passed through
+     * [escapeJson] to prevent broken JSON when values contain quotes, newlines,
+     * or other special characters.
      */
     private fun subscribeServiceFlows() {
         val svc = service ?: return
@@ -199,6 +210,7 @@ class RubynChatPanel(
 
         svc.sessionCost
             .onEach { cost ->
+                // inputTokens, outputTokens, and costUsd are numeric — no escaping needed.
                 sendToWebview(
                     """{"type":"sessionCost","inputTokens":${cost.inputTokens},""" +
                         """"outputTokens":${cost.outputTokens},"costUsd":${cost.costUsd}}"""
@@ -208,24 +220,41 @@ class RubynChatPanel(
 
         svc.pendingApprovals
             .onEach { approvals ->
-                // Push each pending approval as a toolCall message so the webview
-                // can render the approve/deny UI.
-                approvals.forEach { approval ->
+                // Diff against the previously-sent set so we only push new additions
+                // and removals rather than re-broadcasting the entire list every time.
+                val currentIds = approvals.map { it.toolCallId }.toSet()
+
+                val added   = approvals.filter { it.toolCallId !in sentApprovalIds }
+                val removed = sentApprovalIds - currentIds
+
+                // Notify the webview about newly-added approvals.
+                added.forEach { approval ->
                     sendToWebview(
-                        """{"type":"toolCall","message":{"id":"${approval.toolCallId}",""" +
+                        """{"type":"toolCall","message":{"id":"${escapeJson(approval.toolCallId)}",""" +
                             """"role":"tool","content":"","timestamp":"${java.time.Instant.now()}",""" +
-                            """"toolCall":{"id":"${approval.toolCallId}","name":"${approval.toolName}",""" +
+                            """"toolCall":{"id":"${escapeJson(approval.toolCallId)}",""" +
+                            """"name":"${escapeJson(approval.toolName)}",""" +
                             """"args":{},"status":"pending"}}}"""
                     )
                 }
+
+                // Notify the webview about resolved (approved/denied) approvals so it
+                // can remove their UI elements.
+                removed.forEach { id ->
+                    sendToWebview("""{"type":"toolCallResolved","toolCallId":"${escapeJson(id)}"}""")
+                }
+
+                sentApprovalIds.clear()
+                sentApprovalIds.addAll(currentIds)
             }
             .launchIn(scope)
 
         svc.streamText
             .onEach { chunk ->
                 sendToWebview(
-                    """{"type":"streamChunk","sessionId":"${chunk.sessionId}",""" +
-                        """"messageId":"${chunk.messageId}","delta":"${escapeJson(chunk.delta)}","done":false}"""
+                    """{"type":"streamChunk","sessionId":"${escapeJson(chunk.sessionId)}",""" +
+                        """"messageId":"${escapeJson(chunk.messageId)}",""" +
+                        """"delta":"${escapeJson(chunk.delta)}","done":false}"""
                 )
             }
             .launchIn(scope)
@@ -233,8 +262,8 @@ class RubynChatPanel(
         svc.streamDone
             .onEach { done ->
                 sendToWebview(
-                    """{"type":"streamChunk","sessionId":"${done.sessionId}",""" +
-                        """"messageId":"${done.messageId}","delta":"","done":true}"""
+                    """{"type":"streamChunk","sessionId":"${escapeJson(done.sessionId)}",""" +
+                        """"messageId":"${escapeJson(done.messageId)}","delta":"","done":true}"""
                 )
             }
             .launchIn(scope)
@@ -277,7 +306,7 @@ class RubynChatPanel(
     private fun sendSessionList() {
         val sid = service?.sessionId?.value ?: return
         sendToWebview(
-            """{"type":"sessionList","sessions":[{"id":"$sid","label":"Session",""" +
+            """{"type":"sessionList","sessions":[{"id":"${escapeJson(sid)}","label":"Session",""" +
                 """"createdAt":"${java.time.Instant.now()}","active":true}]}"""
         )
     }
