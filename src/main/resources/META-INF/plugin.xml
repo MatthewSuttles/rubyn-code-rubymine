@@ -32,7 +32,6 @@
             conditionClass="com.rubyn.toolwindow.RubynToolWindowCondition"/>
 
         <!-- ── Application-level services ──────────────────────────────── -->
-        <!-- (none at application scope for v0.1) -->
 
         <!-- ── Project-level services ───────────────────────────────────── -->
         <projectService
