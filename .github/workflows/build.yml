@@ -1,0 +1,151 @@
+name: Build & Verify
+
+on:
+  push:
+    branches:
+      - main
+      - 'feat/**'
+      - 'fix/**'
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build & Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+
+      - name: Build & Test
+        run: ./gradlew build test --no-daemon
+        env:
+          GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx768m -XX:MaxMetaspaceSize=384m"
+
+      - name: Upload build artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugin-${{ matrix.os }}
+          path: build/distributions/*.zip
+          if-no-files-found: ignore
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-${{ matrix.os }}
+          path: build/reports/tests/
+          if-no-files-found: ignore
+
+  verify:
+    name: Verify Plugin
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+
+      - name: Run Plugin Verifier
+        run: ./gradlew verifyPlugin --no-daemon
+        env:
+          GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx768m -XX:MaxMetaspaceSize=384m"
+
+      - name: Upload verifier results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugin-verifier-results
+          path: build/reports/pluginVerifier/
+          if-no-files-found: ignore
+
+      - name: Comment verifier results on PR
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+
+            const resultsDir = 'build/reports/pluginVerifier';
+            let summary = '## Plugin Verifier Results\n\n';
+
+            if (!fs.existsSync(resultsDir)) {
+              summary += '⚠️ No verifier results found.\n';
+            } else {
+              const ides = fs.readdirSync(resultsDir);
+              for (const ide of ides) {
+                const ideDir = path.join(resultsDir, ide);
+                if (!fs.statSync(ideDir).isDirectory()) continue;
+
+                summary += `### ${ide}\n`;
+
+                const overallPath = path.join(ideDir, 'verification-verdict.txt');
+                if (fs.existsSync(overallPath)) {
+                  const verdict = fs.readFileSync(overallPath, 'utf8').trim();
+                  const icon = verdict.includes('Compatible') ? '✅' : '❌';
+                  summary += `${icon} ${verdict}\n\n`;
+                } else {
+                  summary += '⚠️ No verdict file found.\n\n';
+                }
+              }
+            }
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(c =>
+              c.user.type === 'Bot' && c.body.includes('Plugin Verifier Results')
+            );
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: summary,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: summary,
+              });
+            }
