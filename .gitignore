@@ -23,3 +23,7 @@ certificate/
 
 # Kotlin incremental compilation
 kotlin-js-store/
+
+# Webview build output — generated, not committed
+webview-source/node_modules/
+webview-source/dist/
