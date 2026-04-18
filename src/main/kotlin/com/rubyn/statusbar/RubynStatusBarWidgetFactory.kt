@@ -5,22 +5,33 @@ import com.intellij.openapi.wm.StatusBar
 import com.intellij.openapi.wm.StatusBarWidget
 import com.intellij.openapi.wm.StatusBarWidgetFactory
 import com.rubyn.RubynBundle
-import com.rubyn.icons.RubynIcons
+import com.rubyn.context.ProjectDetector
 
 /**
- * Factory that registers the Rubyn status bar widget with the IDE.
+ * Registers the [RubynStatusBarWidget] with the IDE.
  *
- * The widget shows the current agent state and session cost, and opens
- * the Rubyn tool window on click. Full implementation in Task 10
- * (Status Bar Widget). This stub satisfies the plugin.xml registration.
+ * [isAvailable] returns true only for Ruby projects (as detected by
+ * [ProjectDetector.isRubyProject]). This keeps the widget out of the status
+ * bar for unrelated projects, satisfying the AC: "visible for Ruby projects only".
+ *
+ * The factory is registered in plugin.xml under the
+ * `com.intellij.statusBarWidgetFactory` extension point.
  */
 class RubynStatusBarWidgetFactory : StatusBarWidgetFactory {
 
-    override fun getId(): String = "com.rubyn.statusbar.RubynStatusBarWidgetFactory"
+    override fun getId(): String = RubynStatusBarWidget.WIDGET_ID
 
     override fun getDisplayName(): String = RubynBundle.message("settings.rubyn.title")
 
-    override fun isAvailable(project: Project): Boolean = true
+    /**
+     * Returns true only when [ProjectDetector] identifies the project as a
+     * Ruby project. The status bar framework calls this before creating the
+     * widget, so non-Ruby projects never have a widget instance.
+     */
+    override fun isAvailable(project: Project): Boolean {
+        val detector = project.getService(ProjectDetector::class.java) ?: return false
+        return detector.isRubyProject()
+    }
 
     override fun createWidget(project: Project): StatusBarWidget = RubynStatusBarWidget(project)
 
