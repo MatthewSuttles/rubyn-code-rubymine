@@ -121,4 +121,31 @@ object RubynNotifier {
         )
         Notifications.Bus.notify(notification, project)
     }
+
+    /**
+     * Error: the bridge failed to reconnect after the maximum number of attempts.
+     *
+     * The user must intervene manually. Actions: Retry — calls [RubynProjectService.ensureRunning]
+     * on a pooled thread so it doesn't block the EDT.
+     */
+    fun bridgeDisconnected(project: Project) {
+        val notification = group().createNotification(
+            RubynBundle.message("notification.rubyn.bridge.disconnected.title"),
+            RubynBundle.message("notification.rubyn.bridge.disconnected.content"),
+            NotificationType.ERROR
+        )
+        notification.addAction(
+            com.intellij.notification.NotificationAction.createSimpleExpiring(
+                RubynBundle.message("notification.action.restart")
+            ) {
+                ApplicationManager.getApplication().executeOnPooledThread {
+                    project.getService(com.rubyn.services.RubynProjectService::class.java)
+                        ?.ensureRunning()
+                }
+            }
+        )
+        Notifications.Bus.notify(notification, project)
+    }
 }
+
+// NOTE: bridgeDisconnected added by Task 3
