@@ -221,6 +221,24 @@ class RubynBridge(
     }
 
     /**
+     * Exports a session transcript. Returns a future with the response.
+     */
+    fun exportSession(params: SessionExportParams): CompletableFuture<RpcResponse> {
+        val id = JsonRpcCodec.nextId()
+        val line = JsonRpcCodec.encodeRequest(id, RpcMethod.SESSION_EXPORT, params)
+        return sendAndRegister(id, line)
+    }
+
+    /**
+     * Deletes a session from rubyn-code's history.
+     */
+    fun deleteSession(params: SessionDeleteParams): CompletableFuture<RpcResponse> {
+        val id = JsonRpcCodec.nextId()
+        val line = JsonRpcCodec.encodeRequest(id, RpcMethod.SESSION_DELETE, params)
+        return sendAndRegister(id, line)
+    }
+
+    /**
      * Sends the shutdown request.
      */
     fun shutdown(): CompletableFuture<RpcResponse> = request(RpcMethod.SHUTDOWN)
