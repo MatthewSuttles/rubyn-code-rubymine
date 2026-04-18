@@ -26,4 +26,12 @@ object RubynIcons {
     /** 13×13 icon used in the status bar widget. */
     @JvmField
     val StatusBarIcon = IconLoader.getIcon("/icons/rubyn-statusbar.svg", RubynIcons::class.java)
+
+    /** 16×16 green checkmark used in the diff viewer Accept toolbar action. */
+    @JvmField
+    val AcceptEdit = IconLoader.getIcon("/icons/rubyn-accept-edit.svg", RubynIcons::class.java)
+
+    /** 16×16 red X used in the diff viewer Reject toolbar action. */
+    @JvmField
+    val RejectEdit = IconLoader.getIcon("/icons/rubyn-reject-edit.svg", RubynIcons::class.java)
 }
