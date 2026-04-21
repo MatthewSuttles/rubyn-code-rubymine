@@ -1,5 +1,5 @@
 <idea-plugin>
-    <id>com.rubyn.rubymine</id>
+    <id>com.rubyn.ide</id>
     <name>Rubyn</name>
     <vendor email="support@rubyn.dev" url="https://rubyn.dev">Rubyn</vendor>
 
