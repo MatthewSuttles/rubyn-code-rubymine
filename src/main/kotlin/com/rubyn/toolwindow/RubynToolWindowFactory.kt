@@ -6,28 +6,47 @@ import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.ui.content.ContentFactory
 import com.rubyn.RubynBundle
-import javax.swing.JLabel
-import javax.swing.JPanel
 
 /**
- * Factory that creates the Rubyn tool window panel.
+ * Factory that creates the Rubyn tool window.
  *
- * Marked [DumbAware] so the window is accessible even while the IDE is
- * indexing. Full JCEF webview implementation in Task 7 (Tool Window).
- * This stub creates a placeholder panel so the plugin loads cleanly.
+ * Produces two tabs:
+ *   - **Chat** — [RubynChatPanel]: JCEF webview bridge or Swing fallback.
+ *   - **Sessions** — [RubynSessionsPanel]: tree view of past sessions with
+ *     Resume, Export, and Delete actions.
+ *
+ * Marked [DumbAware] so the window is accessible even while the IDE is indexing.
+ *
+ * Both panels receive the content [com.intellij.openapi.util.Disposable] as their
+ * parent so their resources are released automatically when the tool window is
+ * torn down.
  */
 class RubynToolWindowFactory : ToolWindowFactory, DumbAware {
 
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
         val contentFactory = ContentFactory.getInstance()
 
-        // TODO (Task 7): replace with JCEF webview panel
-        val placeholder = JPanel().apply { add(JLabel("Rubyn — coming in Task 7")) }
-        val content = contentFactory.createContent(
-            placeholder,
-            RubynBundle.message("toolwindow.rubyn.title"),
-            /* isLockable = */ false
+        // ── Chat tab ──────────────────────────────────────────────────────
+
+        val chatContent = contentFactory.createContent(
+            /* component   = */ null,
+            /* displayName = */ RubynBundle.message("toolwindow.tab.chat"),
+            /* isLockable  = */ false,
         )
-        toolWindow.contentManager.addContent(content)
+        // Build the panel *after* createContent so we have the disposable.
+        val chatPanel = RubynChatPanel(project, chatContent)
+        chatContent.component = chatPanel
+        toolWindow.contentManager.addContent(chatContent)
+
+        // ── Sessions tab ──────────────────────────────────────────────────
+
+        val sessionsContent = contentFactory.createContent(
+            /* component   = */ null,
+            /* displayName = */ RubynBundle.message("toolwindow.tab.sessions"),
+            /* isLockable  = */ false,
+        )
+        val sessionsPanel = RubynSessionsPanel(project, sessionsContent)
+        sessionsContent.component = sessionsPanel
+        toolWindow.contentManager.addContent(sessionsContent)
     }
 }
