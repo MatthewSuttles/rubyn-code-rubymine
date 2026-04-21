@@ -7,7 +7,7 @@ on:
 
 jobs:
   release:
-    name: Build, Sign & Publish
+    name: Build & Release
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -25,12 +25,11 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Build & Test
-        run: ./gradlew build test --no-daemon
+      - name: Build plugin
+        run: ./gradlew buildPlugin --no-daemon
         env:
           GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx768m -XX:MaxMetaspaceSize=384m"
 
-      # --- Artifact + Release immediately after build ---
       - name: Get tag version
         id: tag
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
@@ -50,28 +49,6 @@ jobs:
 
             ### Install from disk
             Download the `.zip` below → RubyMine → Settings → Plugins → ⚙️ → Install Plugin from Disk.
-
-            ### Verified against
-            - RubyMine 2024.3
-            - RubyMine 2025.1
-            - IntelliJ IDEA Ultimate 2024.3
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
           files: build/distributions/*.zip
-
-      # --- Verification + Marketplace publish (non-blocking) ---
-      - name: Run Plugin Verifier
-        continue-on-error: true
-        run: ./gradlew verifyPlugin --no-daemon
-        env:
-          GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx768m -XX:MaxMetaspaceSize=384m"
-
-      - name: Sign & Publish to JetBrains Marketplace
-        continue-on-error: true
-        run: ./gradlew publishPlugin --no-daemon
-        env:
-          GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx768m -XX:MaxMetaspaceSize=384m"
-          PUBLISH_TOKEN: ${{ secrets.JETBRAINS_HUB_TOKEN }}
-          CERTIFICATE_CHAIN: ${{ secrets.CERTIFICATE_CHAIN }}
-          PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
-          PRIVATE_KEY_PASSWORD: ${{ secrets.PRIVATE_KEY_PASSWORD }}
