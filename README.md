@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="src/main/resources/META-INF/pluginIcon.svg" alt="Rubyn" width="80" height="80" />
+  <img src="docs/RubynLogo.png" alt="Rubyn" width="200" />
 </p>
 
 <h1 align="center">Rubyn for RubyMine</h1>
@@ -16,20 +16,9 @@
 
 ---
 
-<!-- Screenshot: Tool window open alongside a Ruby file -->
-<p align="center">
-  <img src="docs/screenshots/tool-window.png" alt="Rubyn tool window in RubyMine" width="700" />
-</p>
-
-<p align="center">
-  <em>Chat, review diffs, and refactor — all inside RubyMine</em>
-</p>
-
----
-
 ## What it does
 
-Rubyn connects RubyMine to a local **rubyn-code** agent that understands your entire
+Rubyn connects RubyMine to [**rubyn-code**](https://github.com/MatthewSuttles/rubyn-code), an agentic coding assistant that understands your entire
 codebase. Ask questions, request edits, and review proposed changes as inline diffs —
 without switching windows or copy-pasting.
 
@@ -39,7 +28,7 @@ without switching windows or copy-pasting.
 - **Inline diff viewer** — proposed file edits appear as IDE diffs; accept or reject
   individual changes with toolbar buttons
 - **Status bar widget** — shows agent state (running / stopped) and session cost at a glance
-- **Multi-provider** — Anthropic Claude, OpenAI GPT-4, and Google Gemini
+- **Multi-provider** — Anthropic Claude, OpenAI, and Google Gemini
 - **Crash recovery** — automatic restart with exponential back-off; auth failures
   surface as actionable notifications
 
@@ -53,17 +42,19 @@ without switching windows or copy-pasting.
 gem install rubyn-code
 ```
 
-Or add it to your Gemfile and `bundle install`.
-
-Requires **Ruby ≥ 3.1**.
+Requires **Ruby 4.0+**. See the [rubyn-code README](https://github.com/MatthewSuttles/rubyn-code#install) for rbenv/rvm setup instructions.
 
 ### 2. Authenticate
 
+Rubyn Code reads your Claude Code OAuth token from the macOS Keychain automatically — just make sure you've logged into Claude Code once (`claude` in your terminal).
+
+Alternatively, set an API key via environment variable:
+
 ```sh
-rubyn-code auth
+export ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-Follow the prompt to enter your API key. Keys are stored at `~/.rubyn/credentials`.
+See the [rubyn-code authentication docs](https://github.com/MatthewSuttles/rubyn-code#authentication) for all provider options.
 
 ### 3. Install the plugin
 
@@ -135,7 +126,7 @@ Open **Settings → Tools → Rubyn**.
 |---|---|---|
 | Executable path | _(auto)_ | Absolute path to `rubyn-code`. Leave blank to use `PATH`. |
 | Provider | `anthropic` | AI provider: `anthropic`, `openai`, or `google` |
-| Model | `claude-sonnet-4-5` | Model identifier within the selected provider |
+| Model | `claude-opus-4-6` | Model identifier within the selected provider |
 | Token budget | `0` (unlimited) | Maximum tokens per session |
 | Cost budget | `0.00` (unlimited) | Maximum USD cost per session |
 | Permission mode | `default` | One of `default`, `acceptEdits`, `bypassPermissions`, `planOnly` |
