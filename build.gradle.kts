@@ -88,7 +88,50 @@ intellijPlatform {
     instrumentCode = false
 }
 
+// ── Webview build ──────────────────────────────────────────────────────────────
+// The JCEF chat panel loads its UI from META-INF/rubyn-webview/index.html.
+// Vite produces a single-file bundle in webview-source/dist/ that we copy into
+// the processResources output so it ends up inside the plugin JAR/zip.
+
+val webviewDir = layout.projectDirectory.dir("webview-source")
+val webviewDist = webviewDir.dir("dist")
+
+val webviewNpmInstall by tasks.registering(Exec::class) {
+    description = "Install webview npm dependencies"
+    group = "webview"
+    workingDir = webviewDir.asFile
+    inputs.file(webviewDir.file("package.json"))
+    inputs.file(webviewDir.file("package-lock.json")).optional()
+    outputs.dir(webviewDir.dir("node_modules"))
+    commandLine("npm", "install", "--no-audit", "--no-fund")
+}
+
+val webviewBuild by tasks.registering(Exec::class) {
+    description = "Build the webview UI bundle with Vite"
+    group = "webview"
+    dependsOn(webviewNpmInstall)
+    workingDir = webviewDir.asFile
+    inputs.dir(webviewDir.dir("src"))
+    inputs.file(webviewDir.file("index.html"))
+    inputs.file(webviewDir.file("vite.config.ts"))
+    inputs.file(webviewDir.file("tsconfig.json"))
+    outputs.dir(webviewDist)
+    commandLine("npm", "run", "build")
+}
+
+val copyWebview by tasks.registering(Copy::class) {
+    description = "Copy webview dist into plugin resources"
+    group = "webview"
+    dependsOn(webviewBuild)
+    from(webviewDist)
+    into(layout.buildDirectory.dir("resources/main/META-INF/rubyn-webview"))
+}
+
 tasks {
+    processResources {
+        dependsOn(copyWebview)
+    }
+
     wrapper {
         gradleVersion = "8.11.1"
     }
