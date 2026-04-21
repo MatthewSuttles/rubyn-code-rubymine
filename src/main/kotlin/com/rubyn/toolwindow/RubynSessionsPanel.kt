@@ -273,7 +273,7 @@ class RubynSessionsPanel(
         val dialog = FileChooserFactory.getInstance()
             .createSaveFileDialog(descriptor, project)
 
-        val wrapper = dialog.save(null, "session-${node.info.sessionId}.json") ?: return
+        val wrapper = dialog.save(null as com.intellij.openapi.vfs.VirtualFile?, "session-${node.info.sessionId}.json") ?: return
 
         scope.launch {
             runCatching {
@@ -282,7 +282,7 @@ class RubynSessionsPanel(
                     svc.exportSession(node.info.sessionId)
                 }
                 withContext(Dispatchers.IO) {
-                    wrapper.getVirtualFile(true)?.setBinaryContent(content.toByteArray(Charsets.UTF_8))
+                    wrapper.file.writeText(content, Charsets.UTF_8)
                 }
                 LOG.info("RubynSessionsPanel: exported session ${node.info.sessionId}")
             }.onFailure {
