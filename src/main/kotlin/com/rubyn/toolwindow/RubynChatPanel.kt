@@ -24,7 +24,10 @@ import kotlinx.serialization.json.decodeFromJsonElement
 import java.awt.BorderLayout
 import java.awt.Font
 import java.beans.PropertyChangeListener
+import java.io.File
 import java.net.URL
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import javax.swing.JPanel
 import javax.swing.SwingUtilities
 import javax.swing.UIManager
@@ -118,19 +121,53 @@ class RubynChatPanel(
      * Loads the bundled webview HTML into the JCEF browser.
      *
      * The resource lives at `META-INF/rubyn-webview/index.html` inside the
-     * plugin jar. When the resource is absent (early development builds) a
-     * minimal inline stub is loaded instead.
+     * plugin jar. JCEF (Chromium) cannot load `jar:` URLs, so we extract the
+     * webview bundle to a temp directory and load via `file://` instead.
+     *
+     * When the resource is absent (early development builds) a minimal inline
+     * stub is loaded instead.
      */
     private fun loadWebview() {
-        val resource: URL? = javaClass.classLoader
-            .getResource("META-INF/rubyn-webview/index.html")
+        val resourceBase = "META-INF/rubyn-webview"
+        val indexResource: URL? = javaClass.classLoader.getResource("$resourceBase/index.html")
 
-        if (resource != null) {
-            browser!!.loadURL(resource.toExternalForm())
-            LOG.info("RubynChatPanel: loaded webview from $resource")
-        } else {
+        if (indexResource == null) {
             browser!!.loadHTML(STUB_HTML)
             LOG.warn("RubynChatPanel: webview resource not found — loaded stub HTML")
+            return
+        }
+
+        // JCEF (Chromium) cannot handle jar: URLs. Extract the webview bundle
+        // to a temp directory and load via file:// protocol.
+        try {
+            val tempDir = Files.createTempDirectory("rubyn-webview-").toFile()
+            tempDir.deleteOnExit()
+
+            // Extract all known webview files from the jar into the temp dir.
+            val webviewFiles = listOf("index.html", "rubyn-webview.js", "rubyn-webview.css")
+            for (filename in webviewFiles) {
+                val stream = javaClass.classLoader.getResourceAsStream("$resourceBase/$filename")
+                if (stream != null) {
+                    val target = File(tempDir, filename)
+                    stream.use { input ->
+                        Files.copy(input, target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                    }
+                    target.deleteOnExit()
+                }
+            }
+
+            val indexFile = File(tempDir, "index.html")
+            if (indexFile.exists()) {
+                val fileUrl = indexFile.toURI().toURL().toExternalForm()
+                browser!!.loadURL(fileUrl)
+                LOG.info("RubynChatPanel: loaded webview from $fileUrl")
+            } else {
+                browser!!.loadHTML(STUB_HTML)
+                LOG.warn("RubynChatPanel: failed to extract webview — loaded stub HTML")
+            }
+        } catch (e: Exception) {
+            LOG.error("RubynChatPanel: webview extraction failed", e)
+            browser!!.loadHTML(STUB_HTML)
         }
     }
 

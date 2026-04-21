@@ -263,6 +263,11 @@ class RubynProcessService(private val project: Project) : Disposable {
      * Resolution order:
      *   1. executablePath from [RubynSettingsService] (if non-blank and the file exists).
      *   2. PATH search for rubyn-code.
+     *   3. `which`/`command -v` via the user's login shell (picks up .zshrc/.bashrc paths).
+     *   4. Common Ruby tool-chain locations (rbenv, asdf, chruby, RVM, Homebrew, system gem).
+     *
+     * Steps 3–4 are necessary because macOS GUI apps (launched from Dock/Spotlight)
+     * inherit a minimal PATH that excludes ~/.rbenv/shims, ~/.asdf/shims, etc.
      *
      * Does not require the lock — reads only from settings and the filesystem.
      */
@@ -277,6 +282,7 @@ class RubynProcessService(private val project: Project) : Disposable {
             LOG.warn("Configured path '$configured' not found or not executable — falling back to PATH")
         }
 
+        // 1. Standard JVM PATH search.
         val pathDirs = System.getenv("PATH")?.split(File.pathSeparator) ?: emptyList()
         for (dir in pathDirs) {
             val candidate = File(dir, "rubyn-code")
@@ -286,8 +292,90 @@ class RubynProcessService(private val project: Project) : Disposable {
             }
         }
 
-        LOG.warn("rubyn-code not found on PATH: $pathDirs")
+        // 2. Ask the user's login shell — picks up .zshrc/.bashrc PATH additions.
+        resolveViaLoginShell()?.let { return it }
+
+        // 3. Probe well-known Ruby tool-chain directories.
+        val home = System.getProperty("user.home") ?: ""
+        val wellKnownDirs = listOf(
+            // rbenv
+            "$home/.rbenv/shims",
+            // asdf
+            "$home/.asdf/shims",
+            // chruby — shims aren't used, but gems land here
+            "$home/.gem/ruby/bin",
+            // RVM
+            "$home/.rvm/bin",
+            "$home/.rvm/gems/default/bin",
+            // Homebrew (Apple Silicon + Intel)
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            // System gem bin (Linux)
+            "/usr/local/lib/ruby/gems/bin",
+            "$home/.local/share/gem/ruby/bin",
+        )
+        for (dir in wellKnownDirs) {
+            val candidate = File(dir, "rubyn-code")
+            if (candidate.isFile && candidate.canExecute()) {
+                LOG.info("Found rubyn-code in well-known location: ${candidate.absolutePath}")
+                return candidate.absolutePath
+            }
+        }
+
+        // 4. Glob rbenv/asdf versioned directories (e.g. ~/.rbenv/versions/3.3.0/bin).
+        listOf("$home/.rbenv/versions", "$home/.asdf/installs/ruby").forEach { base ->
+            val versionsDir = File(base)
+            if (versionsDir.isDirectory) {
+                versionsDir.listFiles()
+                    ?.sortedDescending() // highest version first
+                    ?.forEach { versionDir ->
+                        val candidate = File(versionDir, "bin/rubyn-code")
+                        if (candidate.isFile && candidate.canExecute()) {
+                            LOG.info("Found rubyn-code in versioned dir: ${candidate.absolutePath}")
+                            return candidate.absolutePath
+                        }
+                    }
+            }
+        }
+
+        LOG.warn("rubyn-code not found on PATH ($pathDirs) or well-known locations")
         return null
+    }
+
+    /**
+     * Runs `command -v rubyn-code` in the user's login shell to resolve the
+     * executable through the full shell environment (.zshrc, .bashrc, etc.).
+     *
+     * Returns the resolved path or null if the command fails or times out.
+     */
+    private fun resolveViaLoginShell(): String? {
+        return try {
+            val shell = System.getenv("SHELL") ?: "/bin/zsh"
+            val process = ProcessBuilder(shell, "-l", "-c", "command -v rubyn-code")
+                .redirectErrorStream(true)
+                .start()
+
+            val finished = process.waitFor(5, TimeUnit.SECONDS)
+            if (!finished) {
+                process.destroyForcibly()
+                LOG.debug("Login shell lookup timed out")
+                return null
+            }
+            if (process.exitValue() != 0) return null
+
+            val path = process.inputStream.use { it.bufferedReader().readLine()?.trim() }
+            if (!path.isNullOrBlank()) {
+                val f = File(path)
+                if (f.isFile && f.canExecute()) {
+                    LOG.info("Found rubyn-code via login shell: $path")
+                    return path
+                }
+            }
+            null
+        } catch (e: Exception) {
+            LOG.debug("Login shell lookup failed: ${e.message}")
+            null
+        }
     }
 
     /**
@@ -344,7 +432,18 @@ class RubynProcessService(private val project: Project) : Disposable {
             val f = File(dir, "ruby")
             if (f.isFile && f.canExecute()) return f.absolutePath
         }
-        return null
+        // Fall back to login shell lookup — same reason as resolveExecutable.
+        return try {
+            val shell = System.getenv("SHELL") ?: "/bin/zsh"
+            val process = ProcessBuilder(shell, "-l", "-c", "command -v ruby")
+                .redirectErrorStream(true)
+                .start()
+            val finished = process.waitFor(5, TimeUnit.SECONDS)
+            if (!finished) { process.destroyForcibly(); return null }
+            if (process.exitValue() != 0) return null
+            val path = process.inputStream.use { it.bufferedReader().readLine()?.trim() }
+            if (!path.isNullOrBlank() && File(path).let { it.isFile && it.canExecute() }) path else null
+        } catch (_: Exception) { null }
     }
 
     // ── Process spawning ──────────────────────────────────────────────────
