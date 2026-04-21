@@ -476,7 +476,6 @@ class RubynProjectService(private val project: Project) : Disposable {
                 val params = decodeParams<StreamTextParams>(notification) ?: return
                 _streamText.tryEmit(params)
             }
-            }
 
             NotificationMethod.STREAM_DONE -> {
                 val params = decodeParams<StreamDoneParams>(notification) ?: return
