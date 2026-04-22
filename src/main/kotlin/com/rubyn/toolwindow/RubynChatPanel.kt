@@ -87,6 +87,13 @@ class RubynChatPanel(
     // pendingApprovals so we only push new additions and notify on removals.
     private val sentApprovalIds = mutableSetOf<String>()
 
+    // ── Streaming message tracking ──────────────────────────────────────────
+
+    // Tracks the current assistant message ID for stream chunks so the
+    // webview can group deltas into a single message bubble.
+    @Volatile
+    private var currentStreamMessageId: String? = null
+
     // ── Init ──────────────────────────────────────────────────────────────
 
     init {
@@ -241,8 +248,35 @@ class RubynChatPanel(
     private fun subscribeServiceFlows() {
         val svc = service ?: return
 
+        // Push the Kotlin-side session ID to the webview so it can use the
+        // real ID instead of generating its own.  This is the critical link
+        // that allows the webview's `activeSessionId` to match the IDs on
+        // inbound streamChunk / toolCall messages.
+        svc.sessionId
+            .onEach { sid ->
+                if (sid != null) {
+                    sendToWebview("""{"type":"sessionId","sessionId":"${escapeJson(sid)}"}""")
+                }
+            }
+            .launchIn(scope)
+
         svc.agentStatus
-            .onEach { status -> sendToWebview(agentStatusJson(status)) }
+            .onEach { status ->
+                // When the agent starts thinking, generate a new message ID
+                // for the upcoming stream. When it goes idle, clear it.
+                when (status) {
+                    AgentStatus.THINKING, AgentStatus.STREAMING -> {
+                        if (currentStreamMessageId == null) {
+                            currentStreamMessageId = java.util.UUID.randomUUID().toString()
+                        }
+                    }
+                    AgentStatus.IDLE, AgentStatus.ERROR -> {
+                        currentStreamMessageId = null
+                    }
+                    else -> { /* keep current */ }
+                }
+                sendToWebview(agentStatusJson(status))
+            }
             .launchIn(scope)
 
         svc.sessionCost
@@ -288,8 +322,12 @@ class RubynChatPanel(
 
         svc.streamText
             .onEach { chunk ->
+                val msgId = currentStreamMessageId ?: java.util.UUID.randomUUID().toString().also {
+                    currentStreamMessageId = it
+                }
                 sendToWebview(
                     """{"type":"streamChunk","sessionId":"${escapeJson(chunk.sessionId)}",""" +
+                        """"messageId":"${escapeJson(msgId)}",""" +
                         """"delta":"${escapeJson(chunk.text)}","done":false}"""
                 )
             }
@@ -297,10 +335,13 @@ class RubynChatPanel(
 
         svc.streamDone
             .onEach { done ->
+                val msgId = currentStreamMessageId ?: "done"
                 sendToWebview(
                     """{"type":"streamChunk","sessionId":"${escapeJson(done.sessionId)}",""" +
+                        """"messageId":"${escapeJson(msgId)}",""" +
                         """"delta":"","done":true}"""
                 )
+                currentStreamMessageId = null
             }
             .launchIn(scope)
     }

@@ -56,6 +56,14 @@ const Chat: React.FC = () => {
   useEffect(() => {
     const unsub = host.on((msg: InboundMessage) => {
       switch (msg.type) {
+        // The Kotlin side pushes the real session ID so the webview can
+        // match it against inbound streamChunk / toolCall messages.
+        case "sessionId": {
+          const sid = msg.sessionId as string;
+          setActiveSessionId(sid);
+          break;
+        }
+
         case "sessionList": {
           const incoming = msg.sessions as Session[];
           setSessions(incoming);
@@ -181,7 +189,7 @@ const Chat: React.FC = () => {
     if (!text) return;
 
     const id = generateId();
-    const sessionId = activeSessionId ?? generateId();
+    const sessionId = activeSessionId ?? "";
 
     // Optimistic local message.
     const msg: ChatMessage = {
