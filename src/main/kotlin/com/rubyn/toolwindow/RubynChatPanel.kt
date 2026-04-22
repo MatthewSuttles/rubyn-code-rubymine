@@ -317,7 +317,7 @@ class RubynChatPanel(
                 val removed = sentApprovalIds - currentIds
 
                 // Notify the webview about newly-added approvals.
-                val sid = svc.sessionId.value
+                val sid = svc.sessionId.value ?: ""
                 added.forEach { approval ->
                     LOG.info("RubynChatPanel: → webview toolCall (id=${approval.toolCallId}, tool=${approval.toolName})")
                     sendToWebview(
