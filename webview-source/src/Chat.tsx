@@ -83,18 +83,31 @@ const Chat: React.FC = () => {
             delta: string;
             done: boolean;
           };
-          setMessages((prev) =>
-            prev.map((m) => {
+          setMessages((prev) => {
+            const exists = prev.some((m) => m.id === messageId);
+            const list = exists
+              ? prev
+              : [
+                  ...prev,
+                  {
+                    id: messageId,
+                    role: "assistant" as const,
+                    content: "",
+                    timestamp: new Date().toISOString(),
+                    isStreaming: true,
+                  },
+                ];
+            return list.map((m) => {
               if (m.id !== messageId) return m;
-              const updatedContent = (m.content ?? "") + delta;
+              const updatedContent = (m.streamingDelta ?? m.content ?? "") + delta;
               return {
                 ...m,
                 content: done ? updatedContent : m.content,
                 streamingDelta: done ? undefined : updatedContent,
                 isStreaming: !done,
               };
-            })
-          );
+            });
+          });
           break;
         }
 

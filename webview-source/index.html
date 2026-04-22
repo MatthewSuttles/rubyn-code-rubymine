@@ -4,14 +4,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!--
-      Content Security Policy for browser-dev mode.
-      VS Code and JCEF inject their own CSP headers; this one only applies
-      when running `vite dev` locally.
+      No Content-Security-Policy meta tag here. VS Code and JCEF inject
+      their own CSP headers at runtime. A static CSP with 'self' breaks
+      JCEF file:// loading (Chromium treats file:// self as null origin,
+      blocking external module scripts).
     -->
-    <meta
-      http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';"
-    />
     <title>Rubyn</title>
   </head>
   <body>
