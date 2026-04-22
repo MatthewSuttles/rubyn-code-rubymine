@@ -40,7 +40,7 @@ object JsonRpcCodec {
     val json: Json = Json {
         ignoreUnknownKeys = true
         isLenient = true
-        encodeDefaults = false
+        encodeDefaults = true
         explicitNulls = false
     }
 

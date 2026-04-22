@@ -301,8 +301,9 @@ class JsonRpcCodecTest {
     fun `RpcRequest has jsonrpc 2_0 field`() {
         val id = JsonRpcCodec.nextId()
         val line = JsonRpcCodec.encodeRequest(id, "test/method")
-        // encodeDefaults=false: jsonrpc (default "2.0") is omitted from encoded JSON.
-        // Verify via round-trip: the decoded data class restores the default value.
+        // encodeDefaults=true: jsonrpc "2.0" is explicitly included in encoded JSON
+        // (required by JSON-RPC 2.0 spec and the rubyn-code CLI).
+        assertTrue("jsonrpc field must be present in encoded JSON", line.contains("\"jsonrpc\":\"2.0\""))
         val decoded = JsonRpcCodec.decodeLine(line) as? RpcRequest
         assertNotNull("Should decode to RpcRequest", decoded)
         assertEquals("Decoded jsonrpc must be 2.0", "2.0", decoded!!.jsonrpc)
