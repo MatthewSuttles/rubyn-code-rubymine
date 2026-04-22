@@ -8,6 +8,7 @@ import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindowManager
 import com.rubyn.bridge.EditorContextParams
+import com.rubyn.bridge.SelectionContext
 import com.rubyn.context.ContextProvider
 import com.rubyn.context.ProjectDetector
 import com.rubyn.services.RubynProjectService
@@ -61,14 +62,20 @@ abstract class AbstractRubynAction(text: String) : AnAction(text), DumbAware {
         val editor = event.getData(CommonDataKeys.EDITOR) ?: return null
         val file = event.getData(CommonDataKeys.VIRTUAL_FILE)
 
-        val selection = editor.selectionModel.selectedText
-        val cursorLine = editor.caretModel.logicalPosition.line + 1 // 1-based
+        val selectedText = editor.selectionModel.selectedText
+        val selectionModel = editor.selectionModel
+        val selectionContext = if (!selectedText.isNullOrEmpty()) {
+            val startLine = editor.document.getLineNumber(selectionModel.selectionStart) + 1
+            val endLine = editor.document.getLineNumber(selectionModel.selectionEnd) + 1
+            SelectionContext(startLine = startLine, endLine = endLine, text = selectedText)
+        } else {
+            null
+        }
 
         return EditorContextParams(
-            filePath = file?.path,
-            selectedText = selection,
-            language = file?.fileType?.name,
-            cursorLine = cursorLine,
+            workspacePath = event.project?.basePath,
+            activeFile = file?.path,
+            selection = selectionContext,
         )
     }
 

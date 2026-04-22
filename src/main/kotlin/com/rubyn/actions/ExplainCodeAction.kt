@@ -24,10 +24,10 @@ class ExplainCodeAction : AbstractRubynAction(
         val project = event.project ?: return
         val context = buildEditorContext(event) ?: return
 
-        val prompt = if (!context.selectedText.isNullOrEmpty()) {
-            RubynBundle.message("prompt.explain.selection", context.selectedText)
+        val prompt = if (context.selection != null) {
+            RubynBundle.message("prompt.explain.selection", context.selection.text)
         } else {
-            val filePath = context.filePath ?: return
+            val filePath = context.activeFile ?: return
             RubynBundle.message("prompt.explain.file", filePath)
         }
 
