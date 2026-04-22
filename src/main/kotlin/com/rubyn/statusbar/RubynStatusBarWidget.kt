@@ -162,6 +162,7 @@ class RubynStatusBarWidget(private val project: Project) :
         AgentStatus.IDLE             -> RubynIcons.StatusBarIcon
         AgentStatus.THINKING         -> AnimatedIcon.Default.INSTANCE
         AgentStatus.STREAMING        -> AnimatedIcon.Default.INSTANCE
+        AgentStatus.REVIEWING        -> AnimatedIcon.Default.INSTANCE
         AgentStatus.WAITING_APPROVAL -> AnimatedIcon.Default.INSTANCE
         AgentStatus.ERROR            -> AllIcons.General.Error
     }
@@ -170,6 +171,7 @@ class RubynStatusBarWidget(private val project: Project) :
         AgentStatus.IDLE             -> RubynBundle.message("statusbar.rubyn.label.idle")
         AgentStatus.THINKING         -> RubynBundle.message("statusbar.rubyn.label.thinking")
         AgentStatus.STREAMING        -> RubynBundle.message("statusbar.rubyn.label.writing")
+        AgentStatus.REVIEWING        -> RubynBundle.message("statusbar.rubyn.label.reviewing")
         AgentStatus.WAITING_APPROVAL -> RubynBundle.message("statusbar.rubyn.label.waiting")
         AgentStatus.ERROR            -> RubynBundle.message("statusbar.rubyn.label.error")
     }

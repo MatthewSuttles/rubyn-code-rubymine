@@ -194,7 +194,7 @@ class RubynBridgeTest {
             Thread.sleep(50)
 
             repeat(3) { i ->
-                val line = """{"jsonrpc":"2.0","method":"stream/text","params":{"session_id":"s1","message_id":"m1","delta":"chunk$i"}}""" + "\n"
+                val line = """{"jsonrpc":"2.0","method":"stream/text","params":{"sessionId":"s1","text":"chunk$i"}}""" + "\n"
                 agentWrite.write(line.toByteArray(Charsets.UTF_8))
                 agentWrite.flush()
             }

@@ -342,8 +342,8 @@ class RubynChatPanel(
     private fun sendSessionList() {
         val sid = service?.sessionId?.value ?: return
         sendToWebview(
-            """{"type":"sessionList","sessions":[{"id":"${escapeJson(sid)}","label":"Session",""" +
-                """"createdAt":"${java.time.Instant.now()}","active":true}]}"""
+            """{"type":"sessionList","sessions":[{"id":"${escapeJson(sid)}","title":"Session",""" +
+                """"updatedAt":"${java.time.Instant.now()}","messageCount":0}]}"""
         )
     }
 
