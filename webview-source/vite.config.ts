@@ -11,6 +11,8 @@ import react from "@vitejs/plugin-react";
 // network fetches for dynamically-imported grammar chunks.
 export default defineConfig({
   plugins: [react()],
+  // Use relative paths so JCEF file:// loading resolves assets correctly.
+  base: "./",
   build: {
     outDir: "dist",
     // CSS injected into JS bundle so JCEF loads a single file.
