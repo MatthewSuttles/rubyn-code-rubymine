@@ -22,9 +22,12 @@ private val LOG = logger<RubynStartupActivity>()
 class RubynStartupActivity : ProjectActivity {
 
     override suspend fun execute(project: Project) {
+        // TODO: Re-enable Ruby project detection after alpha.
+        // During alpha, initialize for every project so developers can test
+        // the plugin without needing a Gemfile in the project root.
         if (!isRubyProject(project)) {
             LOG.info(RubynBundle.message("startup.rubyn.non.ruby.project"))
-            return
+            LOG.info("Rubyn: proceeding anyway (alpha mode — Ruby project check disabled)")
         }
 
         LOG.info(RubynBundle.message("startup.rubyn.initializing"))
