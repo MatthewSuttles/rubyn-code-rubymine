@@ -53,6 +53,14 @@ const Chat: React.FC = () => {
   useEffect(scrollToBottom, [messages, scrollToBottom]);
 
   // ── Host message handling ─────────────────────────────────────────────────
+  //
+  // IMPORTANT: This effect registers ONCE on mount (empty deps []).
+  // We use a ref for activeSessionId so the handler closure always reads
+  // the latest value without re-registering (which would cause double
+  // message processing).
+  const activeSessionRef = useRef<string | null>(activeSessionId);
+  activeSessionRef.current = activeSessionId;
+
   useEffect(() => {
     const unsub = host.on((msg: InboundMessage) => {
       switch (msg.type) {
@@ -67,15 +75,16 @@ const Chat: React.FC = () => {
         case "sessionList": {
           const incoming = msg.sessions as Session[];
           setSessions(incoming);
-          if (!activeSessionId && incoming.length > 0) {
-            setActiveSessionId(incoming[0]!.id);
-          }
+          setActiveSessionId((prev) => {
+            if (prev) return prev;
+            return incoming.length > 0 ? incoming[0]!.id : prev;
+          });
           break;
         }
 
         case "newMessage": {
           const m = msg.message as ChatMessage;
-          if (msg.sessionId !== activeSessionId) break;
+          if (msg.sessionId !== activeSessionRef.current) break;
           setMessages((prev) => {
             // Avoid duplicates
             if (prev.some((p) => p.id === m.id)) return prev;
@@ -85,7 +94,7 @@ const Chat: React.FC = () => {
         }
 
         case "streamChunk": {
-          if (msg.sessionId !== activeSessionId) break;
+          if (msg.sessionId !== activeSessionRef.current) break;
           const { messageId, delta, done } = msg as unknown as {
             messageId: string;
             delta: string;
@@ -120,7 +129,7 @@ const Chat: React.FC = () => {
         }
 
         case "toolCall": {
-          if (msg.sessionId !== activeSessionId) break;
+          if (msg.sessionId !== activeSessionRef.current) break;
           const m = msg.message as ChatMessage;
           setMessages((prev) => [...prev, m]);
           break;
@@ -146,7 +155,8 @@ const Chat: React.FC = () => {
     host.send({ type: "getSessions" });
 
     return unsub;
-  }, [activeSessionId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Mount once — uses activeSessionRef for latest session ID
 
   // ── Slash command state ───────────────────────────────────────────────────
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -312,7 +322,7 @@ const Chat: React.FC = () => {
             value={input}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
-            placeholder="Message Rubyn… (/ for commands)"
+            placeholder="Message Rubyn... (/ for commands)"
             rows={1}
             aria-label="Message input"
           />
