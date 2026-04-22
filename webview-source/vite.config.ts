@@ -23,7 +23,23 @@ function jcefCompat(): Plugin {
     transformIndexHtml(html) {
       return html
         .replace(/ crossorigin/g, "")
-        .replace(/ type="module"/g, "");
+        .replace(/ type="module"/g, "")
+        // Move <script> from <head> to end of <body> so the DOM (#root) exists
+        // when the IIFE executes. With type="module" removed, the script no
+        // longer auto-defers and would otherwise run before <body> is parsed.
+        .replace(
+          /(<script\b[^>]*src="[^"]*rubyn-webview\.js"[^>]*><\/script>)\s*/,
+          (match, scriptTag) => {
+            // Remove from current position (in <head>)
+            return "";
+          }
+        )
+        .replace(
+          "</body>",
+          (match) => {
+            return `<script defer src="./rubyn-webview.js"></script>\n</body>`;
+          }
+        );
     },
   };
 }
