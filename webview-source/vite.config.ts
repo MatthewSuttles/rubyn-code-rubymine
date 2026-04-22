@@ -1,5 +1,32 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
+
+/**
+ * Make built HTML compatible with JCEF file:// loading.
+ *
+ * Two problems:
+ * 1. Vite adds `crossorigin` to <script> and <link> tags. Chromium treats
+ *    file:// as origin "null", so any `crossorigin` triggers a CORS check
+ *    that immediately fails — the resource never loads.
+ * 2. Vite emits `<script type="module" ...>`. ES modules *always* require
+ *    CORS (even without an explicit `crossorigin` attribute), so file://
+ *    pages cannot load them. We strip `type="module"` so the browser treats
+ *    the script as a classic script.
+ *
+ * Together these two changes allow the IIFE bundle to load via file:// in
+ * JCEF without any CORS issues.
+ */
+function jcefCompat(): Plugin {
+  return {
+    name: "jcef-compat",
+    enforce: "post",
+    transformIndexHtml(html) {
+      return html
+        .replace(/ crossorigin/g, "")
+        .replace(/ type="module"/g, "");
+    },
+  };
+}
 
 // Single-file bundle consumed by both VS Code webview and IntelliJ JCEF.
 // Everything is inlined — no asset imports that require a separate fetch.
@@ -10,7 +37,7 @@ import react from "@vitejs/plugin-react";
 // This is required for JCEF compatibility: the sandbox cannot issue secondary
 // network fetches for dynamically-imported grammar chunks.
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), jcefCompat()],
   // Use relative paths so JCEF file:// loading resolves assets correctly.
   base: "./",
   build: {
@@ -19,6 +46,11 @@ export default defineConfig({
     cssCodeSplit: false,
     rollupOptions: {
       output: {
+        // IIFE format so the built HTML uses a plain <script> tag instead of
+        // <script type="module">. ES modules always require CORS (even without
+        // an explicit crossorigin attribute), and Chromium blocks CORS on
+        // file:// URLs (origin is "null"). IIFE avoids this entirely.
+        format: "iife",
         // No hashed filenames — hosts reference "rubyn-webview.js" by name.
         entryFileNames: "rubyn-webview.js",
         chunkFileNames: "rubyn-webview-[name].js",
