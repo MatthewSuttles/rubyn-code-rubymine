@@ -131,7 +131,14 @@ const Chat: React.FC = () => {
         case "toolCall": {
           if (msg.sessionId !== activeSessionRef.current) break;
           const m = msg.message as ChatMessage;
-          setMessages((prev) => [...prev, m]);
+          setMessages((prev) => {
+            // Deduplicate: if a tool call with this ID already exists, update
+            // it in place rather than appending a duplicate entry.
+            if (prev.some((p) => p.id === m.id)) {
+              return prev.map((p) => (p.id === m.id ? m : p));
+            }
+            return [...prev, m];
+          });
           break;
         }
 

@@ -441,11 +441,16 @@ class RubynProjectService(private val project: Project) : Disposable {
                     return
                 }
                 LOG.info("STREAM_TEXT: received chunk (sessionId=${params.sessionId}, len=${params.text.length}, final=${params.final})")
-                val emitted = _streamText.tryEmit(params)
-                if (!emitted) LOG.warn("STREAM_TEXT: SharedFlow buffer full — dropped chunk")
                 if (params.final) {
+                    // Only emit on streamDone — do NOT also emit on streamText.
+                    // Previously we emitted on both flows, causing RubynChatPanel
+                    // to push two streamChunk messages for the final chunk: one
+                    // with the text (done=false) and one finishing (done=true).
                     val doneEmitted = _streamDone.tryEmit(params)
                     if (!doneEmitted) LOG.warn("STREAM_DONE: SharedFlow buffer full — dropped done signal")
+                } else {
+                    val emitted = _streamText.tryEmit(params)
+                    if (!emitted) LOG.warn("STREAM_TEXT: SharedFlow buffer full — dropped chunk")
                 }
             }
 

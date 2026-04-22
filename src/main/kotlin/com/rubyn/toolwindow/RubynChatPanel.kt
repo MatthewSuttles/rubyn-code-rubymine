@@ -348,10 +348,14 @@ class RubynChatPanel(
         svc.streamDone
             .onEach { done ->
                 val msgId = currentStreamMessageId ?: "done"
+                // Include the final chunk's text in the done message so no
+                // content is lost. Previously streamText also emitted this
+                // chunk (with done=false) causing a double push; now only
+                // streamDone carries it.
                 sendToWebview(
                     """{"type":"streamChunk","sessionId":"${escapeJson(done.sessionId)}",""" +
                         """"messageId":"${escapeJson(msgId)}",""" +
-                        """"delta":"","done":true}"""
+                        """"delta":"${escapeJson(done.text)}","done":true}"""
                 )
                 currentStreamMessageId = null
             }
