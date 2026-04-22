@@ -245,14 +245,19 @@ class RubynProcessService(private val project: Project) : Disposable {
             handler = detachHandler()
         }
 
-        // Phase 2: blocking termination outside the lock.
-        awaitTermination(handler)
-
-        // Phase 3: close log writer only if it was ever opened. No lock needed —
-        // the process is already gone so the notifier thread will no longer call
-        // appendToLogFile. Checking logWriter != null avoids opening the file
-        // just to close it immediately.
-        runCatching { logWriter?.close() }
+        // Phase 2: terminate the process. If we're on the EDT (which happens when
+        // the user closes the project window), we must NOT block — IntelliJ flags
+        // synchronous process waits on the EDT as a SEVERE error and it can deadlock.
+        // Fire-and-forget on a pooled thread instead; the OS will reap the child.
+        if (ApplicationManager.getApplication().isDispatchThread) {
+            ApplicationManager.getApplication().executeOnPooledThread {
+                awaitTermination(handler)
+                runCatching { logWriter?.close() }
+            }
+        } else {
+            awaitTermination(handler)
+            runCatching { logWriter?.close() }
+        }
     }
 
     // ── Pre-flight checks ─────────────────────────────────────────────────
