@@ -6,9 +6,9 @@
 
 export interface Session {
   id: string;
-  label: string;
-  createdAt: string; // ISO-8601
-  active: boolean;
+  title: string;
+  updatedAt: string; // ISO-8601
+  messageCount: number;
 }
 
 // ── Messages ──────────────────────────────────────────────────────────────────

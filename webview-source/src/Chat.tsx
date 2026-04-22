@@ -244,13 +244,13 @@ const Chat: React.FC = () => {
           >
             {sessions.map((s) => (
               <option key={s.id} value={s.id}>
-                {s.label}
+                {s.title}
               </option>
             ))}
           </select>
         ) : (
           <span className="rubyn-chat__session-label">
-            {activeSession?.label ?? "Session"}
+            {activeSession?.title ?? "Session"}
           </span>
         )}
         <button
