@@ -46,7 +46,7 @@ class JsonRpcCodecTest {
     @Test
     fun `encodeRequest with params produces valid JSON-RPC 2_0 line`() {
         val id = JsonRpcCodec.nextId()
-        val params = InitializeParams(clientVersion = "0.1.0", projectDir = "/my/project")
+        val params = InitializeParams(workspacePath = "/my/project", extensionVersion = "0.1.0")
         val line = JsonRpcCodec.encodeRequest(id, RpcMethod.INITIALIZE, params)
 
         assertTrue("Line must end with newline", line.endsWith("\n"))
@@ -75,7 +75,7 @@ class JsonRpcCodecTest {
 
     @Test
     fun `encodeNotificationLine produces valid JSON-RPC 2_0 notification`() {
-        val params = PromptCancelParams(sessionId = "sess-1", messageId = "msg-1")
+        val params = PromptCancelParams(sessionId = "sess-1")
         val line = JsonRpcCodec.encodeNotificationLine(RpcMethod.PROMPT_CANCEL, params)
 
         assertTrue("Line must end with newline", line.endsWith("\n"))
@@ -89,15 +89,15 @@ class JsonRpcCodecTest {
     // ── Round-trip decode for every message type ──────────────────────────
 
     @Test
-    fun `round-trip RpcRequest with all fields`() {
+    fun `round-trip RpcRequest with session resume`() {
         val id = 42L
-        val params = SessionStartParams(sessionId = "s1", model = "claude-3")
-        val line = JsonRpcCodec.encodeRequest(id, RpcMethod.SESSION_START, params)
+        val params = SessionResumeParams(sessionId = "s1")
+        val line = JsonRpcCodec.encodeRequest(id, RpcMethod.SESSION_RESUME, params)
         val decoded = JsonRpcCodec.decodeLine(line) as? RpcRequest
 
         assertNotNull(decoded)
         assertEquals(42L, decoded!!.id)
-        assertEquals(RpcMethod.SESSION_START, decoded.method)
+        assertEquals(RpcMethod.SESSION_RESUME, decoded.method)
     }
 
     @Test
@@ -132,7 +132,7 @@ class JsonRpcCodecTest {
 
     @Test
     fun `round-trip RpcNotification`() {
-        val params = AgentStatusParams(status = "thinking", sessionId = "s1")
+        val params = AgentStatusParams(sessionId = "s1", status = "thinking")
         val line = JsonRpcCodec.encodeNotificationLine(NotificationMethod.AGENT_STATUS, params)
         val decoded = JsonRpcCodec.decodeLine(line) as? RpcNotification
 
@@ -142,7 +142,7 @@ class JsonRpcCodecTest {
 
     @Test
     fun `round-trip stream-text notification`() {
-        val params = StreamTextParams(sessionId = "s1", messageId = "m1", delta = "Hello")
+        val params = StreamTextParams(sessionId = "s1", text = "Hello")
         val line = JsonRpcCodec.encodeNotificationLine(NotificationMethod.STREAM_TEXT, params)
         val decoded = JsonRpcCodec.decodeLine(line) as? RpcNotification
 
@@ -152,19 +152,19 @@ class JsonRpcCodecTest {
     }
 
     @Test
-    fun `round-trip stream-done notification`() {
-        val params = StreamDoneParams(sessionId = "s1", messageId = "m1", content = "Full text")
-        val line = JsonRpcCodec.encodeNotificationLine(NotificationMethod.STREAM_DONE, params)
+    fun `round-trip stream-text final notification`() {
+        val params = StreamTextParams(sessionId = "s1", text = "Full text", final = true)
+        val line = JsonRpcCodec.encodeNotificationLine(NotificationMethod.STREAM_TEXT, params)
         val decoded = JsonRpcCodec.decodeLine(line) as? RpcNotification
 
         assertNotNull(decoded)
-        assertEquals(NotificationMethod.STREAM_DONE, decoded!!.method)
+        assertEquals(NotificationMethod.STREAM_TEXT, decoded!!.method)
     }
 
     @Test
     fun `round-trip InitializeParams`() {
         val id = JsonRpcCodec.nextId()
-        val params = InitializeParams(clientVersion = "1.0.0", projectDir = "/home/user/project")
+        val params = InitializeParams(workspacePath = "/home/user/project", extensionVersion = "1.0.0")
         val line = JsonRpcCodec.encodeRequest(id, RpcMethod.INITIALIZE, params)
         val decoded = JsonRpcCodec.decodeLine(line) as? RpcRequest
 
@@ -174,22 +174,23 @@ class JsonRpcCodecTest {
             InitializeParams.serializer()
         )
         assertNotNull(decodedParams)
-        assertEquals("1.0.0", decodedParams!!.clientVersion)
-        assertEquals("/home/user/project", decodedParams.projectDir)
+        assertEquals("1.0.0", decodedParams!!.extensionVersion)
+        assertEquals("/home/user/project", decodedParams.workspacePath)
     }
 
     @Test
     fun `round-trip PromptSendParams with context`() {
         val id = JsonRpcCodec.nextId()
         val params = PromptSendParams(
-            sessionId = "sess",
-            messageId = "msg",
             text = "Explain this",
+            sessionId = "sess",
             context = EditorContextParams(
-                filePath = "/app/foo.rb",
-                selectedText = "def foo; end",
-                language = "Ruby",
-                cursorLine = 5,
+                activeFile = "/app/foo.rb",
+                selection = SelectionContext(
+                    startLine = 1,
+                    endLine = 5,
+                    text = "def foo; end",
+                ),
             )
         )
         val line = JsonRpcCodec.encodeRequest(id, RpcMethod.PROMPT_SEND, params)
@@ -201,20 +202,16 @@ class JsonRpcCodecTest {
         assertEquals("sess", decodedParams!!.sessionId)
         assertEquals("Explain this", decodedParams.text)
         assertNotNull(decodedParams.context)
-        assertEquals("/app/foo.rb", decodedParams.context!!.filePath)
-        assertEquals(5, decodedParams.context.cursorLine)
+        assertEquals("/app/foo.rb", decodedParams.context!!.activeFile)
     }
 
     @Test
     fun `round-trip FileEditParams`() {
         val params = FileEditParams(
-            sessionId = "s1",
             editId = "edit-1",
-            diff = FileDiffPayload(
-                path = "/app/models/user.rb",
-                before = "class User; end",
-                after = "class User\n  validates :name\nend",
-            )
+            path = "/app/models/user.rb",
+            content = "class User\n  validates :name\nend",
+            type = "update",
         )
         val line = JsonRpcCodec.encodeNotificationLine(NotificationMethod.FILE_EDIT, params)
         val decoded = JsonRpcCodec.decodeLine(line) as? RpcNotification
@@ -223,7 +220,7 @@ class JsonRpcCodecTest {
         val decodedParams = JsonRpcCodec.decodeParams(decoded!!.params, FileEditParams.serializer())
         assertNotNull(decodedParams)
         assertEquals("edit-1", decodedParams!!.editId)
-        assertEquals("/app/models/user.rb", decodedParams.diff.path)
+        assertEquals("/app/models/user.rb", decodedParams.path)
     }
 
     @Test
@@ -246,14 +243,14 @@ class JsonRpcCodecTest {
 
     @Test
     fun `round-trip ToolApprovalParams`() {
-        val params = ToolApprovalParams(toolCallId = "tc-1", sessionId = "s1")
-        val line = JsonRpcCodec.encodeNotificationLine(RpcMethod.TOOL_APPROVE, params)
+        val params = ToolApprovalParams(requestId = "tc-1", approved = true)
+        val line = JsonRpcCodec.encodeNotificationLine(RpcMethod.APPROVE_TOOL_USE, params)
         val decoded = JsonRpcCodec.decodeLine(line) as? RpcNotification
         val decodedParams = JsonRpcCodec.decodeParams(decoded!!.params, ToolApprovalParams.serializer())
 
         assertNotNull(decodedParams)
-        assertEquals("tc-1", decodedParams!!.toolCallId)
-        assertEquals("s1", decodedParams.sessionId)
+        assertEquals("tc-1", decodedParams!!.requestId)
+        assertEquals(true, decodedParams.approved)
     }
 
     // ── Malformed / bad input ─────────────────────────────────────────────
@@ -319,7 +316,7 @@ class JsonRpcCodecTest {
 
     @Test
     fun `RpcNotification does not have id field`() {
-        val params = AgentStatusParams(status = "idle")
+        val params = AgentStatusParams(sessionId = "s1", status = "idle")
         val line = JsonRpcCodec.encodeNotificationLine(NotificationMethod.AGENT_STATUS, params)
         val obj = JsonRpcCodec.json.parseToJsonElement(line.trim()) as JsonObject
         assertTrue("notification must not have 'id' field", !obj.containsKey("id"))
@@ -337,7 +334,7 @@ class JsonRpcCodecTest {
 
     @Test
     fun `decodeLine tolerates extra unknown fields in notification`() {
-        val json = """{"jsonrpc":"2.0","method":"stream/text","params":{"session_id":"s1","message_id":"m1","delta":"hi"},"future_field":true}"""
+        val json = """{"jsonrpc":"2.0","method":"stream/text","params":{"sessionId":"s1","text":"hi"},"future_field":true}"""
         val decoded = JsonRpcCodec.decodeLine(json)
         assertNotNull("Should not fail on unknown fields", decoded)
         assertTrue("Should decode as RpcNotification", decoded is RpcNotification)
@@ -368,7 +365,7 @@ class JsonRpcCodecTest {
 
     @Test
     fun `discriminator selects RpcNotification for method without id`() {
-        val json = """{"jsonrpc":"2.0","method":"agent/status","params":{"status":"idle"}}"""
+        val json = """{"jsonrpc":"2.0","method":"agent/status","params":{"sessionId":"s1","status":"idle"}}"""
         val decoded = JsonRpcCodec.decodeLine(json)
         assertTrue("Has method+no id -> RpcNotification", decoded is RpcNotification)
     }
@@ -383,7 +380,7 @@ class JsonRpcCodecTest {
 
     @Test
     fun `decodeParams deserializes AgentStatusParams correctly`() {
-        val params = AgentStatusParams(status = "streaming", sessionId = "abc")
+        val params = AgentStatusParams(sessionId = "abc", status = "streaming")
         val line = JsonRpcCodec.encodeNotificationLine(NotificationMethod.AGENT_STATUS, params)
         val notification = JsonRpcCodec.decodeLine(line) as RpcNotification
         val decoded = JsonRpcCodec.decodeParams(notification.params, AgentStatusParams.serializer())

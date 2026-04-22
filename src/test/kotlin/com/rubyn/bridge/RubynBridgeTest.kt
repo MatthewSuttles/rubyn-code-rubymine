@@ -24,7 +24,8 @@ import java.util.concurrent.TimeUnit
  *   - Malformed lines are skipped — bridge stays alive
  *   - notifyAgent is fire-and-forget (no future registered)
  *   - dispose is idempotent
- *   - cancelPrompt sends a notification (no response future)
+ *   - cancelPrompt sends a request (returns a future)
+ *   - resolveToolApproval sends a request with approval boolean
  */
 class RubynBridgeTest {
 
@@ -328,7 +329,7 @@ class RubynBridgeTest {
         try {
             bridge.dispose()
             // Must not throw
-            bridge.notifyAgent("""{"jsonrpc":"2.0","method":"prompt/cancel","params":{}}""" + "\n")
+            bridge.notifyAgent("""{"jsonrpc":"2.0","method":"cancel","params":{}}""" + "\n")
         } finally {
             runCatching { agentWrite.close() }
         }
@@ -337,20 +338,28 @@ class RubynBridgeTest {
     // ── Fire-and-forget (notification) ────────────────────────────────────
 
     @Test
-    fun `cancelPrompt sends a notification with no id field`() {
+    fun `cancelPrompt sends a request with correct method`() {
         val (bridge, agentWrite, agentRead) = buildBridge()
 
         try {
-            val params = PromptCancelParams(sessionId = "s1", messageId = "m1")
-            bridge.cancelPrompt(params)
+            val params = PromptCancelParams(sessionId = "s1")
+            val future = bridge.cancelPrompt(params)
             Thread.sleep(50)
 
             val line = agentRead.bufferedReader().readLine()
-            assertNotNull("Bridge should have written the notification", line)
+            assertNotNull("Bridge should have written the request", line)
 
             val decoded = JsonRpcCodec.decodeLine(line!!)
-            assertTrue("cancelPrompt must send an RpcNotification", decoded is RpcNotification)
-            assertEquals(RpcMethod.PROMPT_CANCEL, (decoded as RpcNotification).method)
+            assertTrue("cancelPrompt must send an RpcRequest", decoded is RpcRequest)
+            assertEquals(RpcMethod.PROMPT_CANCEL, (decoded as RpcRequest).method)
+
+            // Reply so future completes
+            val resp = """{"jsonrpc":"2.0","id":${decoded.id},"result":null}""" + "\n"
+            agentWrite.write(resp.toByteArray(Charsets.UTF_8))
+            agentWrite.flush()
+
+            val response = future.get(2, TimeUnit.SECONDS)
+            assertNotNull(response)
         } finally {
             bridge.dispose()
             runCatching { agentWrite.close() }
@@ -359,19 +368,27 @@ class RubynBridgeTest {
     }
 
     @Test
-    fun `approveToolCall sends a notification`() {
+    fun `resolveToolApproval sends a request with correct method`() {
         val (bridge, agentWrite, agentRead) = buildBridge()
 
         try {
-            val params = ToolApprovalParams(toolCallId = "tc-1", sessionId = "s1")
-            bridge.approveToolCall(params)
+            val params = ToolApprovalParams(requestId = "tc-1", approved = true)
+            val future = bridge.resolveToolApproval(params)
             Thread.sleep(50)
 
             val line = agentRead.bufferedReader().readLine()
             assertNotNull(line)
             val decoded = JsonRpcCodec.decodeLine(line!!)
-            assertTrue(decoded is RpcNotification)
-            assertEquals(RpcMethod.TOOL_APPROVE, (decoded as RpcNotification).method)
+            assertTrue("Should be an RpcRequest", decoded is RpcRequest)
+            assertEquals(RpcMethod.APPROVE_TOOL_USE, (decoded as RpcRequest).method)
+
+            // Reply so future completes
+            val resp = """{"jsonrpc":"2.0","id":${decoded.id},"result":null}""" + "\n"
+            agentWrite.write(resp.toByteArray(Charsets.UTF_8))
+            agentWrite.flush()
+
+            val response = future.get(2, TimeUnit.SECONDS)
+            assertNotNull(response)
         } finally {
             bridge.dispose()
             runCatching { agentWrite.close() }
@@ -386,7 +403,7 @@ class RubynBridgeTest {
         val (bridge, agentWrite, agentRead) = buildBridge()
 
         try {
-            val future = bridge.initialize(InitializeParams(clientVersion = "1.0", projectDir = "/proj"))
+            val future = bridge.initialize(InitializeParams(workspacePath = "/proj", extensionVersion = "1.0"))
             Thread.sleep(50)
 
             val requestLine = agentRead.bufferedReader().readLine()

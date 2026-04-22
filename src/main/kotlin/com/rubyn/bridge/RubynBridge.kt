@@ -162,7 +162,7 @@ class RubynBridge(
     }
 
     /**
-     * Sends [PromptSendParams] and returns the ack future.
+     * Sends [PromptSendParams] ("prompt") and returns the ack future.
      * The actual streaming response arrives via [notifications].
      */
     fun sendPrompt(params: PromptSendParams): CompletableFuture<RpcResponse> {
@@ -172,69 +172,61 @@ class RubynBridge(
     }
 
     /**
-     * Cancels an in-progress prompt. Fire-and-forget (no response expected).
+     * Cancels an in-progress prompt ("cancel"). Returns the ack future.
      */
-    fun cancelPrompt(params: PromptCancelParams) {
-        notifyAgent(JsonRpcCodec.encodeNotificationLine(RpcMethod.PROMPT_CANCEL, params))
+    fun cancelPrompt(params: PromptCancelParams): CompletableFuture<RpcResponse> {
+        val id = JsonRpcCodec.nextId()
+        val line = JsonRpcCodec.encodeRequest(id, RpcMethod.PROMPT_CANCEL, params)
+        return sendAndRegister(id, line)
     }
 
     /**
-     * Requests a session list.
+     * Requests the session list ("session/list").
      */
     fun listSessions(): CompletableFuture<RpcResponse> = request(RpcMethod.SESSION_LIST)
 
     /**
-     * Starts a new session.
+     * Resumes an existing session ("session/resume").
      */
-    fun startSession(params: SessionStartParams): CompletableFuture<RpcResponse> {
+    fun resumeSession(params: SessionResumeParams): CompletableFuture<RpcResponse> {
         val id = JsonRpcCodec.nextId()
-        val line = JsonRpcCodec.encodeRequest(id, RpcMethod.SESSION_START, params)
+        val line = JsonRpcCodec.encodeRequest(id, RpcMethod.SESSION_RESUME, params)
         return sendAndRegister(id, line)
     }
 
     /**
-     * Approves a pending tool call.
+     * Resets a session ("session/reset") — clears conversation history.
      */
-    fun approveToolCall(params: ToolApprovalParams) {
-        notifyAgent(JsonRpcCodec.encodeNotificationLine(RpcMethod.TOOL_APPROVE, params))
-    }
-
-    /**
-     * Denies a pending tool call.
-     */
-    fun denyToolCall(params: ToolApprovalParams) {
-        notifyAgent(JsonRpcCodec.encodeNotificationLine(RpcMethod.TOOL_DENY, params))
-    }
-
-    /**
-     * Approves a proposed file edit.
-     */
-    fun approveFileEdit(params: FileEditApprovalParams) {
-        notifyAgent(JsonRpcCodec.encodeNotificationLine(RpcMethod.FILE_EDIT_APPROVE, params))
-    }
-
-    /**
-     * Denies a proposed file edit.
-     */
-    fun denyFileEdit(params: FileEditApprovalParams) {
-        notifyAgent(JsonRpcCodec.encodeNotificationLine(RpcMethod.FILE_EDIT_DENY, params))
-    }
-
-    /**
-     * Exports a session transcript. Returns a future with the response.
-     */
-    fun exportSession(params: SessionExportParams): CompletableFuture<RpcResponse> {
+    fun resetSession(params: SessionResetParams): CompletableFuture<RpcResponse> {
         val id = JsonRpcCodec.nextId()
-        val line = JsonRpcCodec.encodeRequest(id, RpcMethod.SESSION_EXPORT, params)
+        val line = JsonRpcCodec.encodeRequest(id, RpcMethod.SESSION_RESET, params)
         return sendAndRegister(id, line)
     }
 
     /**
-     * Deletes a session from rubyn-code's history.
+     * Approves or denies a pending tool call ("approveToolUse").
      */
-    fun deleteSession(params: SessionDeleteParams): CompletableFuture<RpcResponse> {
+    fun resolveToolApproval(params: ToolApprovalParams): CompletableFuture<RpcResponse> {
         val id = JsonRpcCodec.nextId()
-        val line = JsonRpcCodec.encodeRequest(id, RpcMethod.SESSION_DELETE, params)
+        val line = JsonRpcCodec.encodeRequest(id, RpcMethod.APPROVE_TOOL_USE, params)
+        return sendAndRegister(id, line)
+    }
+
+    /**
+     * Accepts or rejects a proposed file edit ("acceptEdit").
+     */
+    fun resolveFileEdit(params: FileEditApprovalParams): CompletableFuture<RpcResponse> {
+        val id = JsonRpcCodec.nextId()
+        val line = JsonRpcCodec.encodeRequest(id, RpcMethod.ACCEPT_EDIT, params)
+        return sendAndRegister(id, line)
+    }
+
+    /**
+     * Requests a code review ("review").
+     */
+    fun requestReview(params: ReviewRequestParams): CompletableFuture<RpcResponse> {
+        val id = JsonRpcCodec.nextId()
+        val line = JsonRpcCodec.encodeRequest(id, RpcMethod.REVIEW_REQUEST, params)
         return sendAndRegister(id, line)
     }
 

@@ -11,21 +11,16 @@ import com.rubyn.bridge.EditorContextParams
 import com.rubyn.bridge.FileEditApprovalParams
 import com.rubyn.bridge.FileEditParams
 import com.rubyn.bridge.InitializeParams
-import com.rubyn.bridge.JsonRpcCodec
 import com.rubyn.bridge.NotificationMethod
 import com.rubyn.bridge.PromptCancelParams
 import com.rubyn.bridge.PromptSendParams
 import com.rubyn.bridge.ReviewRequestParams
-import com.rubyn.bridge.RpcMethod
 import com.rubyn.bridge.RpcNotification
 import com.rubyn.bridge.RpcResponse
 import com.rubyn.bridge.RubynBridge
 import com.rubyn.bridge.SessionCostParams
-import com.rubyn.bridge.SessionDeleteParams
-import com.rubyn.bridge.SessionExportParams
-import com.rubyn.bridge.SessionExportResult
-import com.rubyn.bridge.SessionStartParams
-import com.rubyn.bridge.StreamDoneParams
+import com.rubyn.bridge.SessionResetParams
+import com.rubyn.bridge.SessionResumeParams
 import com.rubyn.bridge.StreamTextParams
 import com.rubyn.bridge.ToolApprovalParams
 import com.rubyn.bridge.ToolUseParams
@@ -102,12 +97,12 @@ class RubynProjectService(private val project: Project) : Disposable {
      */
     val streamText: SharedFlow<StreamTextParams> = _streamText.asSharedFlow()
 
-    private val _streamDone = MutableSharedFlow<StreamDoneParams>(extraBufferCapacity = 64)
+    private val _streamDone = MutableSharedFlow<StreamTextParams>(extraBufferCapacity = 64)
 
     /**
-     * Emitted when a streaming response completes.
+     * Emitted when a streaming response completes (final=true).
      */
-    val streamDone: SharedFlow<StreamDoneParams> = _streamDone.asSharedFlow()
+    val streamDone: SharedFlow<StreamTextParams> = _streamDone.asSharedFlow()
 
     // ── Bridge state ──────────────────────────────────────────────────────
 
@@ -144,9 +139,8 @@ class RubynProjectService(private val project: Project) : Disposable {
         }
         val sid = ensureSessionId()
         val params = PromptSendParams(
-            sessionId = sid,
-            messageId = UUID.randomUUID().toString(),
             text = text,
+            sessionId = sid,
             context = context,
         )
         scope.launch {
@@ -159,17 +153,15 @@ class RubynProjectService(private val project: Project) : Disposable {
     fun cancelActivePrompt() {
         val currentBridge = bridge ?: return
         val sid = _sessionId.value ?: return
-        val params = PromptCancelParams(
-            sessionId = sid,
-            messageId = UUID.randomUUID().toString(),
-        )
+        val params = PromptCancelParams(sessionId = sid)
         scope.launch {
-            runCatching { currentBridge.cancelPrompt(params) }
-                .onFailure { LOG.warn("cancelActivePrompt failed: ${it.message}") }
+            runCatching {
+                withContext(Dispatchers.IO) { currentBridge.cancelPrompt(params).get() }
+            }.onFailure { LOG.warn("cancelActivePrompt failed: ${it.message}") }
         }
     }
 
-    fun submitReview(filePath: String, content: String, focus: String? = null) {
+    fun submitReview(focus: String? = null) {
         val currentBridge = bridge ?: run {
             LOG.warn("submitReview: bridge not connected")
             return
@@ -177,18 +169,12 @@ class RubynProjectService(private val project: Project) : Disposable {
         val sid = ensureSessionId()
         val params = ReviewRequestParams(
             sessionId = sid,
-            filePath = filePath,
-            content = content,
             focus = focus,
         )
         scope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
-                    currentBridge.request(
-                        method = RpcMethod.REVIEW_REQUEST,
-                        params = params,
-                        encode = { id, method, p -> JsonRpcCodec.encodeRequest(id, method, p) },
-                    ).get()
+                    currentBridge.requestReview(params).get()
                 }
             }.onFailure { LOG.warn("submitReview failed: ${it.message}") }
         }
@@ -196,41 +182,49 @@ class RubynProjectService(private val project: Project) : Disposable {
 
     fun approveToolUse(toolCallId: String) {
         val currentBridge = bridge ?: return
-        val sid = _sessionId.value ?: return
         removePendingApproval(toolCallId)
         scope.launch {
-            runCatching { currentBridge.approveToolCall(ToolApprovalParams(toolCallId, sid)) }
-                .onFailure { LOG.warn("approveToolUse failed: ${it.message}") }
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    currentBridge.resolveToolApproval(ToolApprovalParams(requestId = toolCallId, approved = true)).get()
+                }
+            }.onFailure { LOG.warn("approveToolUse failed: ${it.message}") }
         }
     }
 
     fun denyToolUse(toolCallId: String) {
         val currentBridge = bridge ?: return
-        val sid = _sessionId.value ?: return
         removePendingApproval(toolCallId)
         scope.launch {
-            runCatching { currentBridge.denyToolCall(ToolApprovalParams(toolCallId, sid)) }
-                .onFailure { LOG.warn("denyToolUse failed: ${it.message}") }
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    currentBridge.resolveToolApproval(ToolApprovalParams(requestId = toolCallId, approved = false)).get()
+                }
+            }.onFailure { LOG.warn("denyToolUse failed: ${it.message}") }
         }
     }
 
     fun acceptEdit(editId: String) {
         val currentBridge = bridge ?: return
-        val sid = _sessionId.value ?: return
         removePendingEdit(editId)
         scope.launch {
-            runCatching { currentBridge.approveFileEdit(FileEditApprovalParams(editId, sid)) }
-                .onFailure { LOG.warn("acceptEdit failed: ${it.message}") }
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    currentBridge.resolveFileEdit(FileEditApprovalParams(editId = editId, accepted = true)).get()
+                }
+            }.onFailure { LOG.warn("acceptEdit failed: ${it.message}") }
         }
     }
 
     fun rejectEdit(editId: String) {
         val currentBridge = bridge ?: return
-        val sid = _sessionId.value ?: return
         removePendingEdit(editId)
         scope.launch {
-            runCatching { currentBridge.denyFileEdit(FileEditApprovalParams(editId, sid)) }
-                .onFailure { LOG.warn("rejectEdit failed: ${it.message}") }
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    currentBridge.resolveFileEdit(FileEditApprovalParams(editId = editId, accepted = false)).get()
+                }
+            }.onFailure { LOG.warn("rejectEdit failed: ${it.message}") }
         }
     }
 
@@ -255,7 +249,7 @@ class RubynProjectService(private val project: Project) : Disposable {
     }
 
     /**
-     * Resumes an existing session: switches the active ID and sends session/start.
+     * Resumes an existing session: switches the active ID and sends session/resume.
      */
     fun resumeSession(sessionId: String) {
         val currentBridge = bridge ?: run {
@@ -269,38 +263,12 @@ class RubynProjectService(private val project: Project) : Disposable {
         scope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
-                    currentBridge.startSession(
-                        SessionStartParams(
-                            sessionId = sessionId,
-                            model = RubynSettingsService.getInstance().settings().model.ifBlank { null },
-                        )
+                    currentBridge.resumeSession(
+                        SessionResumeParams(sessionId = sessionId)
                     ).get()
                 }
             }.onFailure { LOG.warn("resumeSession failed: ${it.message}") }
         }
-    }
-
-    /**
-     * Exports a session transcript. Blocking — call on [Dispatchers.IO].
-     */
-    fun exportSession(sessionId: String): String {
-        val currentBridge = bridge ?: throw IllegalStateException("bridge not connected")
-        val response = currentBridge.exportSession(SessionExportParams(sessionId)).get()
-        val result = response.result ?: throw IllegalStateException("session/export returned null result")
-        return runCatching {
-            Json.decodeFromJsonElement(SessionExportResult.serializer(), result).content
-        }.getOrElse {
-            runCatching { Json.decodeFromJsonElement<String>(result) }.getOrElse { result.toString() }
-        }
-    }
-
-    /**
-     * Deletes a session from rubyn-code history. Blocking — call on [Dispatchers.IO].
-     */
-    fun deleteSession(sessionId: String) {
-        val currentBridge = bridge ?: throw IllegalStateException("bridge not connected")
-        currentBridge.deleteSession(SessionDeleteParams(sessionId)).get()
-        LOG.info("RubynProjectService: deleted session $sessionId")
     }
 
     // ── Bridge connection ─────────────────────────────────────────────────
@@ -329,8 +297,8 @@ class RubynProjectService(private val project: Project) : Disposable {
             withContext(Dispatchers.IO) {
                 newBridge.initialize(
                     InitializeParams(
-                        clientVersion = CLIENT_VERSION,
-                        projectDir = project.basePath ?: "",
+                        workspacePath = project.basePath ?: "",
+                        extensionVersion = CLIENT_VERSION,
                     )
                 ).get()
             }
@@ -360,19 +328,13 @@ class RubynProjectService(private val project: Project) : Disposable {
 
     private suspend fun launchSession(activeBridge: RubynBridge) {
         val sid = ensureSessionId()
-        val settings = RubynSettingsService.getInstance().settings()
 
         runCatching {
             withContext(Dispatchers.IO) {
-                activeBridge.startSession(
-                    SessionStartParams(
-                        sessionId = sid,
-                        model = settings.model.ifBlank { null },
-                    )
-                ).get()
+                activeBridge.resetSession(SessionResetParams(sessionId = sid)).get()
             }
         }.onFailure {
-            LOG.warn("RubynProjectService: session/start failed: ${it.message}")
+            LOG.warn("RubynProjectService: session/reset failed: ${it.message}")
         }
 
         LOG.info("RubynProjectService: session active -- $sid")
@@ -429,44 +391,40 @@ class RubynProjectService(private val project: Project) : Disposable {
 
             NotificationMethod.TOOL_USE -> {
                 val params = decodeParams<ToolUseParams>(notification) ?: return
-                val approval = PendingToolApproval(
-                    toolCallId = params.toolCallId,
-                    toolName = params.name,
-                    args = params.args.toString(),
-                )
-                updateOnMain { _pendingApprovals.value = _pendingApprovals.value + approval }
+                if (params.requiresApproval) {
+                    val approval = PendingToolApproval(
+                        toolCallId = params.requestId,
+                        toolName = params.tool,
+                        args = params.args.toString(),
+                    )
+                    updateOnMain { _pendingApprovals.value = _pendingApprovals.value + approval }
+                }
             }
 
-            NotificationMethod.FILE_EDIT -> {
+            NotificationMethod.FILE_EDIT, NotificationMethod.FILE_CREATE -> {
                 val params = decodeParams<FileEditParams>(notification) ?: return
+                val isCreate = notification.method == NotificationMethod.FILE_CREATE
                 val edit = PendingFileEdit(
                     editId = params.editId,
-                    filePath = params.diff.path,
-                    before = params.diff.before,
-                    after = params.diff.after,
+                    filePath = params.path,
+                    before = if (isCreate) "" else params.content,
+                    after = params.content,
                 )
                 updateOnMain { _pendingEdits.value = _pendingEdits.value + edit }
 
-                val proposedEdit = when {
-                    params.diff.before.isEmpty() ->
-                        com.rubyn.diff.ProposedEdit.Create(
-                            editId = params.editId,
-                            filePath = params.diff.path,
-                            after = params.diff.after,
-                        )
-                    params.diff.after.isEmpty() ->
-                        com.rubyn.diff.ProposedEdit.Delete(
-                            editId = params.editId,
-                            filePath = params.diff.path,
-                            before = params.diff.before,
-                        )
-                    else ->
-                        com.rubyn.diff.ProposedEdit.Modify(
-                            editId = params.editId,
-                            filePath = params.diff.path,
-                            before = params.diff.before,
-                            after = params.diff.after,
-                        )
+                val proposedEdit = if (isCreate) {
+                    com.rubyn.diff.ProposedEdit.Create(
+                        editId = params.editId,
+                        filePath = params.path,
+                        after = params.content,
+                    )
+                } else {
+                    com.rubyn.diff.ProposedEdit.Modify(
+                        editId = params.editId,
+                        filePath = params.path,
+                        before = params.content,
+                        after = params.content,
+                    )
                 }
                 project.getService(com.rubyn.diff.RubynDiffManager::class.java)
                     ?.presentEdit(proposedEdit)
@@ -475,11 +433,9 @@ class RubynProjectService(private val project: Project) : Disposable {
             NotificationMethod.STREAM_TEXT -> {
                 val params = decodeParams<StreamTextParams>(notification) ?: return
                 _streamText.tryEmit(params)
-            }
-
-            NotificationMethod.STREAM_DONE -> {
-                val params = decodeParams<StreamDoneParams>(notification) ?: return
-                _streamDone.tryEmit(params)
+                if (params.final) {
+                    _streamDone.tryEmit(params)
+                }
             }
 
             NotificationMethod.AGENT_ERROR -> {
@@ -558,7 +514,7 @@ class RubynProjectService(private val project: Project) : Disposable {
 // ── Domain types ──────────────────────────────────────────────────────────────
 
 enum class AgentStatus {
-    IDLE, THINKING, STREAMING, WAITING_APPROVAL, ERROR;
+    IDLE, THINKING, STREAMING, REVIEWING, WAITING_APPROVAL, ERROR;
 
     companion object {
         private val LOG = logger<AgentStatus>()
@@ -567,7 +523,11 @@ enum class AgentStatus {
             "idle"             -> IDLE
             "thinking"         -> THINKING
             "streaming"        -> STREAMING
+            "reviewing"        -> REVIEWING
             "waiting_approval" -> WAITING_APPROVAL
+            "done"             -> IDLE
+            "cancelled"        -> IDLE
+            "error"            -> ERROR
             else               -> {
                 LOG.warn("AgentStatus: unknown value '$value' -- defaulting to IDLE")
                 IDLE

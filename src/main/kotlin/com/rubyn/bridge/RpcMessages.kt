@@ -112,29 +112,33 @@ object RpcMethod {
     const val INITIALIZE    = "initialize"
     const val SHUTDOWN      = "shutdown"
 
-    // Session management
-    const val SESSION_START = "session/start"
-    const val SESSION_END   = "session/end"
-    const val SESSION_LIST  = "session/list"
+    // Session management — names must match rubyn-code handler registry
+    const val SESSION_RESET  = "session/reset"
+    const val SESSION_RESUME = "session/resume"
+    const val SESSION_LIST   = "session/list"
+    const val SESSION_FORK   = "session/fork"
 
-    // Prompt / interaction
-    const val PROMPT_SEND   = "prompt/send"
-    const val PROMPT_CANCEL = "prompt/cancel"
+    // Prompt / interaction — CLI uses bare names, not namespaced
+    const val PROMPT_SEND   = "prompt"
+    const val PROMPT_CANCEL = "cancel"
 
     // Code review
-    const val REVIEW_REQUEST = "review/request"
+    const val REVIEW_REQUEST = "review"
 
-    // Tool approval responses (outbound from plugin)
-    const val TOOL_APPROVE = "tool/approve"
-    const val TOOL_DENY    = "tool/deny"
+    // Tool approval (CLI: approve=true/false in params)
+    const val APPROVE_TOOL_USE  = "approveToolUse"
+    const val TOOL_APPROVE      = "approveToolUse"
+    const val TOOL_DENY         = "approveToolUse"
 
-    // File edit approval responses
-    const val FILE_EDIT_APPROVE = "file/edit/approve"
-    const val FILE_EDIT_DENY    = "file/edit/deny"
+    // File edit approval (CLI: accepted=true/false in params)
+    const val ACCEPT_EDIT       = "acceptEdit"
+    const val FILE_EDIT_APPROVE = "acceptEdit"
+    const val FILE_EDIT_DENY    = "acceptEdit"
 
-    // Session management (extended)
-    const val SESSION_EXPORT = "session/export"
-    const val SESSION_DELETE = "session/delete"
+    // Configuration
+    const val CONFIG_GET    = "config/get"
+    const val CONFIG_SET    = "config/set"
+    const val MODELS_LIST   = "models/list"
 }
 
 /**
@@ -142,34 +146,43 @@ object RpcMethod {
  */
 object NotificationMethod {
     // Streaming text deltas
-    const val STREAM_TEXT   = "stream/text"
-    const val STREAM_DONE   = "stream/done"
+    const val STREAM_TEXT    = "stream/text"
 
-    // Tool use
-    const val TOOL_USE      = "tool/use"
+    // Tool use / result
+    const val TOOL_USE       = "tool/use"
+    const val TOOL_RESULT    = "tool/result"
 
     // File edits proposed by the agent
-    const val FILE_EDIT     = "file/edit"
+    const val FILE_EDIT      = "file/edit"
+    const val FILE_CREATE    = "file/create"
 
     // Agent lifecycle
-    const val AGENT_STATUS  = "agent/status"
+    const val AGENT_STATUS   = "agent/status"
 
     // Session cost update
-    const val SESSION_COST  = "session/cost"
+    const val SESSION_COST   = "session/cost"
 
     // Error from the agent (not associated with a pending request)
-    const val AGENT_ERROR   = "agent/error"
+    const val AGENT_ERROR    = "agent/error"
+
+    // Code review findings
+    const val REVIEW_FINDING = "review/finding"
+
+    // Config changed
+    const val CONFIG_CHANGED = "config/changed"
 }
 
 // ── Typed parameter / result data classes ────────────────────────────────────
 
 /**
  * Params for [RpcMethod.INITIALIZE]. Sent once after the process starts.
+ * Field names match CLI's InitializeHandler expectations.
  */
 @Serializable
 data class InitializeParams(
-    @SerialName("client_version") val clientVersion: String,
-    @SerialName("project_dir")    val projectDir: String,
+    val workspacePath: String,
+    val extensionVersion: String,
+    val capabilities: JsonElement? = null,
 )
 
 /**
@@ -177,28 +190,43 @@ data class InitializeParams(
  */
 @Serializable
 data class InitializeResult(
-    @SerialName("agent_version") val agentVersion: String,
+    val serverVersion: String,
+    val protocolVersion: String,
+    val workspacePath: String,
     val capabilities: AgentCapabilities,
 )
 
 @Serializable
 data class AgentCapabilities(
     val streaming: Boolean = true,
-    @SerialName("tool_use")   val toolUse: Boolean = true,
-    @SerialName("file_edits") val fileEdits: Boolean = true,
+    val tools: Int = 0,
+    val skills: Int = 0,
+    val review: Boolean = false,
+    val memory: Boolean = false,
+    val teams: Boolean = false,
+    val toolApproval: Boolean = false,
+    val editApproval: Boolean = false,
 )
 
 /**
- * Params for [RpcMethod.SESSION_START].
+ * Params for [RpcMethod.SESSION_RESUME].
  */
 @Serializable
-data class SessionStartParams(
-    @SerialName("session_id") val sessionId: String,
-    val model: String? = null,
+data class SessionResumeParams(
+    val sessionId: String,
+)
+
+/**
+ * Params for [RpcMethod.SESSION_RESET].
+ */
+@Serializable
+data class SessionResetParams(
+    val sessionId: String,
 )
 
 /**
  * Result from [RpcMethod.SESSION_LIST].
+ * Fields match CLI's SessionListHandler response.
  */
 @Serializable
 data class SessionListResult(
@@ -207,20 +235,20 @@ data class SessionListResult(
 
 @Serializable
 data class SessionInfo(
-    @SerialName("session_id") val sessionId: String,
-    val label: String,
-    @SerialName("created_at") val createdAt: String,
-    val active: Boolean,
+    val id: String,
+    val title: String,
+    val updatedAt: String,
+    val messageCount: Int,
 )
 
 /**
- * Params for [RpcMethod.PROMPT_SEND].
+ * Params for [RpcMethod.PROMPT_SEND] ("prompt").
+ * Fields match CLI's PromptHandler expectations.
  */
 @Serializable
 data class PromptSendParams(
-    @SerialName("session_id") val sessionId: String,
-    @SerialName("message_id") val messageId: String,
     val text: String,
+    val sessionId: String? = null,
     val context: EditorContextParams? = null,
 )
 
@@ -229,111 +257,117 @@ data class PromptSendParams(
  */
 @Serializable
 data class EditorContextParams(
-    @SerialName("file_path")     val filePath: String? = null,
-    @SerialName("selected_text") val selectedText: String? = null,
-    @SerialName("language")      val language: String? = null,
-    @SerialName("cursor_line")   val cursorLine: Int? = null,
+    val workspacePath: String? = null,
+    val activeFile: String? = null,
+    val selection: SelectionContext? = null,
+    val openFiles: List<String>? = null,
+)
+
+@Serializable
+data class SelectionContext(
+    val startLine: Int,
+    val endLine: Int,
+    val text: String,
 )
 
 /**
- * Params for [RpcMethod.PROMPT_CANCEL].
+ * Params for [RpcMethod.PROMPT_CANCEL] ("cancel").
+ * Field names match CLI's CancelHandler.
  */
 @Serializable
 data class PromptCancelParams(
-    @SerialName("session_id") val sessionId: String,
-    @SerialName("message_id") val messageId: String,
+    val sessionId: String,
 )
 
 /**
- * Params for [RpcMethod.REVIEW_REQUEST].
+ * Params for [RpcMethod.REVIEW_REQUEST] ("review").
+ * Field names match CLI's ReviewHandler.
  */
 @Serializable
 data class ReviewRequestParams(
-    @SerialName("session_id") val sessionId: String,
-    @SerialName("file_path")  val filePath: String,
-    val content: String,
+    val sessionId: String? = null,
+    val baseBranch: String? = null,
     val focus: String? = null,
 )
 
 /**
- * Params for [RpcMethod.TOOL_APPROVE] / [RpcMethod.TOOL_DENY].
+ * Params for [RpcMethod.APPROVE_TOOL_USE] ("approveToolUse").
+ * CLI expects requestId + approved boolean.
  */
 @Serializable
 data class ToolApprovalParams(
-    @SerialName("tool_call_id") val toolCallId: String,
-    @SerialName("session_id")   val sessionId: String,
+    val requestId: String,
+    val approved: Boolean,
 )
 
 /**
- * Params for [RpcMethod.FILE_EDIT_APPROVE] / [RpcMethod.FILE_EDIT_DENY].
+ * Params for [RpcMethod.ACCEPT_EDIT] ("acceptEdit").
+ * CLI expects editId + accepted boolean.
  */
 @Serializable
 data class FileEditApprovalParams(
-    @SerialName("edit_id")    val editId: String,
-    @SerialName("session_id") val sessionId: String,
+    val editId: String,
+    val accepted: Boolean,
 )
 
 // ── Inbound notification param types ─────────────────────────────────────────
 
 /**
- * Params for [NotificationMethod.STREAM_TEXT] — a streaming delta chunk.
+ * Params for [NotificationMethod.STREAM_TEXT] — a streaming text chunk.
+ * CLI sends: sessionId, text, final
  */
 @Serializable
 data class StreamTextParams(
-    @SerialName("session_id")  val sessionId: String,
-    @SerialName("message_id")  val messageId: String,
-    val delta: String,
-)
-
-/**
- * Params for [NotificationMethod.STREAM_DONE] — streaming complete.
- */
-@Serializable
-data class StreamDoneParams(
-    @SerialName("session_id") val sessionId: String,
-    @SerialName("message_id") val messageId: String,
-    val content: String,
+    val sessionId: String,
+    val text: String,
+    val final: Boolean = false,
 )
 
 /**
  * Params for [NotificationMethod.TOOL_USE] — agent wants to call a tool.
+ * CLI sends: requestId, tool, args, requiresApproval
  */
 @Serializable
 data class ToolUseParams(
-    @SerialName("session_id")   val sessionId: String,
-    @SerialName("tool_call_id") val toolCallId: String,
-    val name: String,
+    val requestId: String,
+    val tool: String,
     val args: JsonElement,
-    val diff: FileDiffPayload? = null,
+    val requiresApproval: Boolean = false,
 )
 
 /**
- * A proposed file edit — before/after diff payload.
+ * Params for [NotificationMethod.TOOL_RESULT] — tool execution result.
  */
 @Serializable
-data class FileDiffPayload(
-    val path: String,
-    val before: String,
-    val after: String,
+data class ToolResultParams(
+    val requestId: String,
+    val tool: String,
+    val success: Boolean,
+    val summary: String,
 )
 
 /**
  * Params for [NotificationMethod.FILE_EDIT] — agent proposes a file change.
+ * CLI sends: editId, path, content, type
  */
 @Serializable
 data class FileEditParams(
-    @SerialName("session_id") val sessionId: String,
-    @SerialName("edit_id")    val editId: String,
-    val diff: FileDiffPayload,
+    val editId: String,
+    val path: String,
+    val content: String,
+    val type: String? = null,
 )
 
 /**
  * Params for [NotificationMethod.AGENT_STATUS].
+ * CLI sends: sessionId, status, error (optional), summary (optional)
  */
 @Serializable
 data class AgentStatusParams(
-    val status: String,  // "idle" | "thinking" | "streaming" | "waiting_approval"
-    @SerialName("session_id") val sessionId: String? = null,
+    val sessionId: String,
+    val status: String,  // "thinking" | "streaming" | "done" | "cancelled" | "error" | "reviewing"
+    val error: String? = null,
+    val summary: String? = null,
 )
 
 /**
@@ -341,10 +375,10 @@ data class AgentStatusParams(
  */
 @Serializable
 data class SessionCostParams(
-    @SerialName("session_id")    val sessionId: String,
-    @SerialName("input_tokens")  val inputTokens: Int,
-    @SerialName("output_tokens") val outputTokens: Int,
-    @SerialName("cost_usd")      val costUsd: Double,
+    val sessionId: String,
+    val inputTokens: Int = 0,
+    val outputTokens: Int = 0,
+    val costUsd: Double = 0.0,
 )
 
 /**
@@ -354,29 +388,18 @@ data class SessionCostParams(
 data class AgentErrorParams(
     val message: String,
     val code: Int? = null,
-    @SerialName("session_id") val sessionId: String? = null,
+    val sessionId: String? = null,
 )
 
 /**
- * Params for [RpcMethod.SESSION_EXPORT].
+ * Params for [NotificationMethod.REVIEW_FINDING].
  */
 @Serializable
-data class SessionExportParams(
-    @SerialName("session_id") val sessionId: String,
-)
-
-/**
- * Result from [RpcMethod.SESSION_EXPORT] — raw JSON transcript content.
- */
-@Serializable
-data class SessionExportResult(
-    val content: String,
-)
-
-/**
- * Params for [RpcMethod.SESSION_DELETE].
- */
-@Serializable
-data class SessionDeleteParams(
-    @SerialName("session_id") val sessionId: String,
+data class ReviewFindingParams(
+    val sessionId: String,
+    val index: Int,
+    val severity: String,
+    val message: String,
+    val file: String? = null,
+    val line: Int? = null,
 )

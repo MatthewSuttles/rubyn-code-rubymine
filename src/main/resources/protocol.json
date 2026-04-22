@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Rubyn JSON-RPC 2.0 Protocol",
   "description": "Protocol definition for communication between the RubyMine plugin and the rubyn-code agent process over stdio.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "transport": {
     "type": "stdio",
     "framing": "newline-delimited JSON (NDJSON)",
@@ -13,15 +13,23 @@
       "direction": "plugin → agent",
       "description": "Sent once after the process starts. Must be the first request.",
       "params": {
-        "client_version": "string — semver of the plugin (e.g. '0.1.0')",
-        "project_dir": "string — absolute path to the open project"
+        "workspacePath": "string — absolute path to the open project",
+        "extensionVersion": "string — semver of the plugin (e.g. '0.1.0')",
+        "capabilities": "object? — optional client capability flags"
       },
       "result": {
-        "agent_version": "string — semver of rubyn-code",
+        "serverVersion": "string — semver of rubyn-code",
+        "protocolVersion": "string — protocol version",
+        "workspacePath": "string — confirmed workspace path",
         "capabilities": {
           "streaming": "boolean",
-          "tool_use": "boolean",
-          "file_edits": "boolean"
+          "tools": "integer — number of tools available",
+          "skills": "integer — number of skills available",
+          "review": "boolean",
+          "memory": "boolean",
+          "teams": "boolean",
+          "toolApproval": "boolean",
+          "editApproval": "boolean"
         }
       }
     },
@@ -31,174 +39,186 @@
       "params": null,
       "result": null
     },
-    "session/start": {
+    "session/resume": {
       "direction": "plugin → agent",
-      "description": "Creates or resumes a chat session.",
+      "description": "Resumes an existing chat session by ID.",
       "params": {
-        "session_id": "string — UUID",
-        "model": "string? — model override (e.g. 'claude-3-5-sonnet')"
+        "sessionId": "string — session UUID to resume"
       },
       "result": null
     },
-    "session/end": {
+    "session/reset": {
       "direction": "plugin → agent",
-      "description": "Ends a session and releases resources.",
+      "description": "Resets a session, clearing its conversation history.",
       "params": {
-        "session_id": "string"
+        "sessionId": "string — session UUID to reset"
       },
       "result": null
     },
     "session/list": {
       "direction": "plugin → agent",
-      "description": "Lists all active sessions.",
+      "description": "Lists all available sessions.",
       "params": null,
       "result": {
         "sessions": [
           {
-            "session_id": "string",
-            "label": "string",
-            "created_at": "string (ISO-8601)",
-            "active": "boolean"
+            "id": "string — session UUID",
+            "title": "string — session title",
+            "updatedAt": "string (ISO-8601)",
+            "messageCount": "integer"
           }
         ]
       }
     },
-    "prompt/send": {
+    "session/fork": {
       "direction": "plugin → agent",
-      "description": "Sends a user prompt. The agent streams the response via stream/text and stream/done notifications.",
+      "description": "Forks an existing session into a new branch.",
       "params": {
-        "session_id": "string",
-        "message_id": "string — unique ID for this turn",
+        "sessionId": "string — session to fork from"
+      },
+      "result": null
+    },
+    "prompt": {
+      "direction": "plugin → agent",
+      "description": "Sends a user prompt. The agent streams the response via stream/text notifications.",
+      "params": {
         "text": "string — user message text",
+        "sessionId": "string? — target session (optional, uses current)",
         "context": {
-          "file_path": "string?",
-          "selected_text": "string?",
-          "language": "string?",
-          "cursor_line": "integer?"
+          "workspacePath": "string? — workspace root path",
+          "activeFile": "string? — currently active file path",
+          "selection": {
+            "startLine": "integer",
+            "endLine": "integer",
+            "text": "string — selected text"
+          },
+          "openFiles": "string[]? — list of open file paths"
         }
       },
       "result": null
     },
-    "prompt/cancel": {
+    "cancel": {
       "direction": "plugin → agent",
       "description": "Cancels an in-progress prompt. Agent stops streaming.",
       "params": {
-        "session_id": "string",
-        "message_id": "string"
+        "sessionId": "string"
       },
       "result": null
     },
-    "review/request": {
+    "review": {
       "direction": "plugin → agent",
-      "description": "Requests a code review for a file.",
+      "description": "Requests a code review.",
       "params": {
-        "session_id": "string",
-        "file_path": "string",
-        "content": "string",
+        "sessionId": "string? — optional session context",
+        "baseBranch": "string? — base branch for diff comparison",
         "focus": "string? — review focus hint (e.g. 'performance', 'security')"
       },
       "result": null
     },
-    "tool/approve": {
+    "approveToolUse": {
       "direction": "plugin → agent",
-      "description": "Approves a pending tool call from the agent.",
+      "description": "Approves or denies a pending tool call from the agent.",
       "params": {
-        "tool_call_id": "string",
-        "session_id": "string"
+        "requestId": "string — ID of the tool use request",
+        "approved": "boolean — true to approve, false to deny"
       },
       "result": null
     },
-    "tool/deny": {
+    "acceptEdit": {
       "direction": "plugin → agent",
-      "description": "Denies a pending tool call from the agent.",
+      "description": "Accepts or rejects a proposed file edit.",
       "params": {
-        "tool_call_id": "string",
-        "session_id": "string"
+        "editId": "string — ID of the edit proposal",
+        "accepted": "boolean — true to accept, false to reject"
       },
       "result": null
     },
-    "file/edit/approve": {
+    "config/get": {
       "direction": "plugin → agent",
-      "description": "Approves a proposed file edit.",
-      "params": {
-        "edit_id": "string",
-        "session_id": "string"
-      },
+      "description": "Gets configuration values.",
+      "params": null,
+      "result": "object — configuration key-value pairs"
+    },
+    "config/set": {
+      "direction": "plugin → agent",
+      "description": "Sets configuration values.",
+      "params": "object — configuration key-value pairs to set",
       "result": null
     },
-    "file/edit/deny": {
+    "models/list": {
       "direction": "plugin → agent",
-      "description": "Denies a proposed file edit.",
-      "params": {
-        "edit_id": "string",
-        "session_id": "string"
-      },
-      "result": null
+      "description": "Lists available AI models.",
+      "params": null,
+      "result": "object — list of available models"
     }
   },
   "notifications": {
     "stream/text": {
       "direction": "agent → plugin",
-      "description": "A streaming text delta from the agent.",
+      "description": "A streaming text chunk from the agent. When 'final' is true, streaming is complete and 'text' contains the full assembled content.",
       "params": {
-        "session_id": "string",
-        "message_id": "string",
-        "delta": "string — incremental text chunk"
-      }
-    },
-    "stream/done": {
-      "direction": "agent → plugin",
-      "description": "Signals that streaming is complete for a message.",
-      "params": {
-        "session_id": "string",
-        "message_id": "string",
-        "content": "string — full assembled content"
+        "sessionId": "string",
+        "text": "string — text chunk (or full content when final=true)",
+        "final": "boolean — true when this is the last chunk (default: false)"
       }
     },
     "tool/use": {
       "direction": "agent → plugin",
-      "description": "Agent wants to call a tool and awaits approval.",
+      "description": "Agent wants to call a tool, optionally awaiting approval.",
       "params": {
-        "session_id": "string",
-        "tool_call_id": "string",
-        "name": "string — tool name",
+        "requestId": "string — unique ID for this tool call",
+        "tool": "string — tool name",
         "args": "object — tool arguments",
-        "diff": {
-          "path": "string",
-          "before": "string",
-          "after": "string"
-        }
+        "requiresApproval": "boolean — whether the plugin must approve before execution (default: false)"
+      }
+    },
+    "tool/result": {
+      "direction": "agent → plugin",
+      "description": "Result of a tool execution.",
+      "params": {
+        "requestId": "string — matches the tool/use requestId",
+        "tool": "string — tool name",
+        "success": "boolean — whether the tool succeeded",
+        "summary": "string — human-readable summary of the result"
       }
     },
     "file/edit": {
       "direction": "agent → plugin",
-      "description": "Agent proposes a file edit and awaits approval.",
+      "description": "Agent proposes a file edit.",
       "params": {
-        "session_id": "string",
-        "edit_id": "string",
-        "diff": {
-          "path": "string",
-          "before": "string",
-          "after": "string"
-        }
+        "editId": "string — unique ID for this edit",
+        "path": "string — file path",
+        "content": "string — proposed file content",
+        "type": "string? — edit type (e.g. 'update', 'create')"
+      }
+    },
+    "file/create": {
+      "direction": "agent → plugin",
+      "description": "Agent proposes creating a new file.",
+      "params": {
+        "editId": "string — unique ID for this creation",
+        "path": "string — file path",
+        "content": "string — file content"
       }
     },
     "agent/status": {
       "direction": "agent → plugin",
       "description": "Agent lifecycle status update.",
       "params": {
-        "status": "string — 'idle' | 'thinking' | 'streaming' | 'waiting_approval'",
-        "session_id": "string?"
+        "sessionId": "string",
+        "status": "string — 'thinking' | 'streaming' | 'done' | 'cancelled' | 'error' | 'reviewing'",
+        "error": "string? — error message when status is 'error'",
+        "summary": "string? — summary when status is 'done'"
       }
     },
     "session/cost": {
       "direction": "agent → plugin",
       "description": "Cumulative token usage and cost for a session.",
       "params": {
-        "session_id": "string",
-        "input_tokens": "integer",
-        "output_tokens": "integer",
-        "cost_usd": "number"
+        "sessionId": "string",
+        "inputTokens": "integer",
+        "outputTokens": "integer",
+        "costUsd": "number"
       }
     },
     "agent/error": {
@@ -207,8 +227,25 @@
       "params": {
         "message": "string",
         "code": "integer?",
-        "session_id": "string?"
+        "sessionId": "string?"
       }
+    },
+    "review/finding": {
+      "direction": "agent → plugin",
+      "description": "A code review finding from the agent.",
+      "params": {
+        "sessionId": "string",
+        "index": "integer — finding number",
+        "severity": "string — severity level",
+        "message": "string — finding description",
+        "file": "string? — file path",
+        "line": "integer? — line number"
+      }
+    },
+    "config/changed": {
+      "direction": "agent → plugin",
+      "description": "Notification that configuration has changed.",
+      "params": "object — changed configuration values"
     }
   },
   "error_codes": {

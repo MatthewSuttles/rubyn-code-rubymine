@@ -192,22 +192,10 @@ class RubynSessionsPanel(
             return
         }
 
-        val (active, previous) = sessions.partition { it.active }
-
-        if (active.isNotEmpty()) {
-            val activeGroup = DefaultMutableTreeNode("Active")
-            active.forEach { info ->
-                activeGroup.add(DefaultMutableTreeNode(SessionNode.Session(info)))
-            }
-            root.add(activeGroup)
-        }
-
-        if (previous.isNotEmpty()) {
-            val prevGroup = DefaultMutableTreeNode("Previous")
-            previous.forEach { info ->
-                prevGroup.add(DefaultMutableTreeNode(SessionNode.Session(info)))
-            }
-            root.add(prevGroup)
+        // Show all sessions in a flat list — the CLI does not distinguish
+        // active vs previous in the session/list response.
+        sessions.forEach { info ->
+            root.add(DefaultMutableTreeNode(SessionNode.Session(info)))
         }
 
         treeModel.reload()
@@ -248,13 +236,13 @@ class RubynSessionsPanel(
         val node = selectedSessionNode() ?: return
         val svc = service ?: return
 
-        LOG.info("RubynSessionsPanel: resuming session ${node.info.sessionId}")
+        LOG.info("RubynSessionsPanel: resuming session ${node.info.id}")
         // Resuming a session means switching the active session in the project service.
         // We do this by starting the chosen session ID.
         scope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
-                    svc.resumeSession(node.info.sessionId)
+                    svc.resumeSession(node.info.id)
                 }
             }.onFailure {
                 LOG.warn("RubynSessionsPanel: resume failed: ${it.message}")
@@ -273,29 +261,10 @@ class RubynSessionsPanel(
         val dialog = FileChooserFactory.getInstance()
             .createSaveFileDialog(descriptor, project)
 
-        val wrapper = dialog.save(null as com.intellij.openapi.vfs.VirtualFile?, "session-${node.info.sessionId}.json") ?: return
+        val wrapper = dialog.save(null as com.intellij.openapi.vfs.VirtualFile?, "session-${node.info.id}.json") ?: return
 
-        scope.launch {
-            runCatching {
-                val svc = service ?: return@launch
-                val content = withContext(Dispatchers.IO) {
-                    svc.exportSession(node.info.sessionId)
-                }
-                withContext(Dispatchers.IO) {
-                    wrapper.file.writeText(content, Charsets.UTF_8)
-                }
-                LOG.info("RubynSessionsPanel: exported session ${node.info.sessionId}")
-            }.onFailure {
-                LOG.warn("RubynSessionsPanel: export failed: ${it.message}")
-                withContext(Dispatchers.Main) {
-                    Messages.showErrorDialog(
-                        project,
-                        "Export failed: ${it.message}",
-                        "Rubyn Export Error",
-                    )
-                }
-            }
-        }
+        // TODO: session/export not yet supported by rubyn-code CLI
+        LOG.warn("RubynSessionsPanel: export not yet implemented in CLI")
     }
 
     private fun deleteSelected() {
@@ -303,25 +272,14 @@ class RubynSessionsPanel(
 
         val confirm = Messages.showYesNoDialog(
             project,
-            RubynBundle.message("sessions.delete.confirm", node.info.label),
+            RubynBundle.message("sessions.delete.confirm", node.info.title),
             RubynBundle.message("sessions.delete.title"),
             Messages.getQuestionIcon(),
         )
         if (confirm != Messages.YES) return
 
-        val svc = service ?: return
-
-        scope.launch {
-            runCatching {
-                withContext(Dispatchers.IO) {
-                    svc.deleteSession(node.info.sessionId)
-                }
-                loadSessions()
-                LOG.info("RubynSessionsPanel: deleted session ${node.info.sessionId}")
-            }.onFailure {
-                LOG.warn("RubynSessionsPanel: delete failed: ${it.message}")
-            }
-        }
+        // TODO: session/delete not yet supported by rubyn-code CLI
+        LOG.warn("RubynSessionsPanel: delete not yet implemented in CLI")
     }
 }
 
@@ -341,9 +299,9 @@ sealed class SessionNode {
     data class Session(val info: com.rubyn.bridge.SessionInfo) : SessionNode() {
         override fun toString(): String {
             val ts = runCatching {
-                DATE_FMT.format(Instant.parse(info.createdAt))
-            }.getOrElse { info.createdAt }
-            return if (info.active) "● ${info.label}  ($ts)" else "${info.label}  ($ts)"
+                DATE_FMT.format(Instant.parse(info.updatedAt))
+            }.getOrElse { info.updatedAt }
+            return "${info.title}  ($ts)"
         }
     }
 }

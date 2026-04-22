@@ -290,8 +290,7 @@ class RubynChatPanel(
             .onEach { chunk ->
                 sendToWebview(
                     """{"type":"streamChunk","sessionId":"${escapeJson(chunk.sessionId)}",""" +
-                        """"messageId":"${escapeJson(chunk.messageId)}",""" +
-                        """"delta":"${escapeJson(chunk.delta)}","done":false}"""
+                        """"delta":"${escapeJson(chunk.text)}","done":false}"""
                 )
             }
             .launchIn(scope)
@@ -300,7 +299,7 @@ class RubynChatPanel(
             .onEach { done ->
                 sendToWebview(
                     """{"type":"streamChunk","sessionId":"${escapeJson(done.sessionId)}",""" +
-                        """"messageId":"${escapeJson(done.messageId)}","delta":"","done":true}"""
+                        """"delta":"","done":true}"""
                 )
             }
             .launchIn(scope)
@@ -353,6 +352,7 @@ class RubynChatPanel(
             AgentStatus.IDLE             -> "idle"
             AgentStatus.THINKING         -> "thinking"
             AgentStatus.STREAMING        -> "streaming"
+            AgentStatus.REVIEWING        -> "reviewing"
             AgentStatus.WAITING_APPROVAL -> "waiting_approval"
             AgentStatus.ERROR            -> "error"
         }
