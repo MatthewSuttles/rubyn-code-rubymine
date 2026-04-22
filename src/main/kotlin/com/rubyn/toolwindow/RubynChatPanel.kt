@@ -188,7 +188,12 @@ class RubynChatPanel(
     }
 
     private fun handleWebviewMessage(json: String) {
-        val svc = service ?: return
+        LOG.info("RubynChatPanel: ← webview message: $json")
+
+        val svc = service ?: run {
+            LOG.warn("RubynChatPanel: service is null — dropping message")
+            return
+        }
 
         val map = runCatching {
             Json.decodeFromString<Map<String, kotlinx.serialization.json.JsonElement>>(json)
@@ -199,13 +204,20 @@ class RubynChatPanel(
 
         val type = map["type"]?.let {
             runCatching { Json.decodeFromJsonElement<String>(it) }.getOrNull()
-        } ?: return
+        } ?: run {
+            LOG.warn("RubynChatPanel: missing 'type' field in webview message")
+            return
+        }
 
         when (type) {
             "sendMessage" -> {
                 val text = map["text"]?.let {
                     runCatching { Json.decodeFromJsonElement<String>(it) }.getOrNull()
-                } ?: return
+                } ?: run {
+                    LOG.warn("RubynChatPanel: sendMessage missing 'text' field")
+                    return
+                }
+                LOG.info("RubynChatPanel: → submitPrompt('${text.take(80)}')")
                 svc.submitPrompt(text)
             }
 
@@ -325,11 +337,11 @@ class RubynChatPanel(
                 val msgId = currentStreamMessageId ?: java.util.UUID.randomUUID().toString().also {
                     currentStreamMessageId = it
                 }
-                sendToWebview(
-                    """{"type":"streamChunk","sessionId":"${escapeJson(chunk.sessionId)}",""" +
-                        """"messageId":"${escapeJson(msgId)}",""" +
-                        """"delta":"${escapeJson(chunk.text)}","done":false}"""
-                )
+                val json = """{"type":"streamChunk","sessionId":"${escapeJson(chunk.sessionId)}",""" +
+                    """"messageId":"${escapeJson(msgId)}",""" +
+                    """"delta":"${escapeJson(chunk.text)}","done":false}"""
+                LOG.info("RubynChatPanel: → webview streamChunk (msgId=$msgId, len=${chunk.text.length})")
+                sendToWebview(json)
             }
             .launchIn(scope)
 

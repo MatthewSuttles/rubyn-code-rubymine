@@ -295,23 +295,26 @@ class RubynBridge(
     }
 
     private fun handleLine(line: String) {
+        LOG.info("RubynBridge ← stdout: ${line.take(200)}")
         val message = JsonRpcCodec.decodeLine(line)
         if (message == null) {
-            LOG.debug("RubynBridge: dropping malformed line: $line")
+            LOG.warn("RubynBridge: dropping malformed line: ${line.take(200)}")
             return
         }
 
         when (message) {
             is RpcResponse -> {
+                LOG.info("RubynBridge: response id=${message.id} result=${message.result?.toString()?.take(100)}")
                 val future = pendingRequests.remove(message.id)
                 if (future != null) {
                     future.complete(message)
                 } else {
-                    LOG.debug("RubynBridge: received response for unknown id=${message.id}")
+                    LOG.warn("RubynBridge: received response for unknown id=${message.id}")
                 }
             }
 
             is RpcErrorResponse -> {
+                LOG.warn("RubynBridge: error response id=${message.id} code=${message.error.code} msg=${message.error.message}")
                 val future = pendingRequests.remove(message.id)
                 if (future != null) {
                     future.completeExceptionally(
@@ -323,6 +326,7 @@ class RubynBridge(
             }
 
             is RpcNotification -> {
+                LOG.info("RubynBridge: notification method=${message.method} params=${message.params?.toString()?.take(150)}")
                 // Emit on the SharedFlow — non-blocking, drops if buffer is full.
                 val emitted = _notifications.tryEmit(message)
                 if (!emitted) {
@@ -332,7 +336,7 @@ class RubynBridge(
 
             is RpcRequest -> {
                 // rubyn-code shouldn't be sending us requests, but be tolerant.
-                LOG.debug("RubynBridge: received unexpected request from agent: ${message.method}")
+                LOG.warn("RubynBridge: received unexpected request from agent: ${message.method}")
             }
         }
     }

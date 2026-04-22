@@ -138,6 +138,7 @@ class RubynProjectService(private val project: Project) : Disposable {
             return
         }
         val sid = ensureSessionId()
+        LOG.info("submitPrompt: sending prompt to bridge (sessionId=$sid, text='${text.take(80)}')")
         val params = PromptSendParams(
             text = text,
             sessionId = sid,
@@ -145,8 +146,12 @@ class RubynProjectService(private val project: Project) : Disposable {
         )
         scope.launch {
             runCatching {
-                withContext(Dispatchers.IO) { currentBridge.sendPrompt(params).get() }
-            }.onFailure { LOG.warn("submitPrompt failed: ${it.message}") }
+                withContext(Dispatchers.IO) {
+                    val response = currentBridge.sendPrompt(params).get()
+                    LOG.info("submitPrompt: bridge acknowledged prompt (result=${response.result})")
+                    response
+                }
+            }.onFailure { LOG.warn("submitPrompt failed: ${it.message}", it) }
         }
     }
 
@@ -431,10 +436,16 @@ class RubynProjectService(private val project: Project) : Disposable {
             }
 
             NotificationMethod.STREAM_TEXT -> {
-                val params = decodeParams<StreamTextParams>(notification) ?: return
-                _streamText.tryEmit(params)
+                val params = decodeParams<StreamTextParams>(notification) ?: run {
+                    LOG.warn("STREAM_TEXT: failed to decode params from: ${notification.params}")
+                    return
+                }
+                LOG.info("STREAM_TEXT: received chunk (sessionId=${params.sessionId}, len=${params.text.length}, final=${params.final})")
+                val emitted = _streamText.tryEmit(params)
+                if (!emitted) LOG.warn("STREAM_TEXT: SharedFlow buffer full — dropped chunk")
                 if (params.final) {
-                    _streamDone.tryEmit(params)
+                    val doneEmitted = _streamDone.tryEmit(params)
+                    if (!doneEmitted) LOG.warn("STREAM_DONE: SharedFlow buffer full — dropped done signal")
                 }
             }
 
