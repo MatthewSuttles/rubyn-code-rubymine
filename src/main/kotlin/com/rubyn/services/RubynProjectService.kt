@@ -396,12 +396,14 @@ class RubynProjectService(private val project: Project) : Disposable {
 
             NotificationMethod.TOOL_USE -> {
                 val params = decodeParams<ToolUseParams>(notification) ?: return
+                LOG.info("TOOL_USE: tool=${params.tool}, requiresApproval=${params.requiresApproval}, requestId=${params.requestId}")
                 if (params.requiresApproval) {
                     val approval = PendingToolApproval(
                         toolCallId = params.requestId,
                         toolName = params.tool,
                         args = params.args.toString(),
                     )
+                    LOG.info("TOOL_USE: adding pending approval for ${params.tool} (id=${params.requestId})")
                     updateOnMain { _pendingApprovals.value = _pendingApprovals.value + approval }
                 }
             }

@@ -229,6 +229,7 @@ class RubynChatPanel(
                 val id = map["toolCallId"]?.let {
                     runCatching { Json.decodeFromJsonElement<String>(it) }.getOrNull()
                 } ?: return
+                LOG.info("RubynChatPanel: ← webview approveToolCall (id=$id)")
                 svc.approveToolUse(id)
             }
 
@@ -236,6 +237,7 @@ class RubynChatPanel(
                 val id = map["toolCallId"]?.let {
                     runCatching { Json.decodeFromJsonElement<String>(it) }.getOrNull()
                 } ?: return
+                LOG.info("RubynChatPanel: ← webview denyToolCall (id=$id)")
                 svc.denyToolUse(id)
             }
 
@@ -315,13 +317,16 @@ class RubynChatPanel(
                 val removed = sentApprovalIds - currentIds
 
                 // Notify the webview about newly-added approvals.
+                val sid = svc.sessionId.value
                 added.forEach { approval ->
+                    LOG.info("RubynChatPanel: → webview toolCall (id=${approval.toolCallId}, tool=${approval.toolName})")
                     sendToWebview(
-                        """{"type":"toolCall","message":{"id":"${escapeJson(approval.toolCallId)}",""" +
+                        """{"type":"toolCall","sessionId":"${escapeJson(sid)}",""" +
+                            """"message":{"id":"${escapeJson(approval.toolCallId)}",""" +
                             """"role":"tool","content":"","timestamp":"${java.time.Instant.now()}",""" +
                             """"toolCall":{"id":"${escapeJson(approval.toolCallId)}",""" +
                             """"name":"${escapeJson(approval.toolName)}",""" +
-                            """"args":{},"status":"pending"}}}"""
+                            """"args":${approval.args},"status":"pending"}}}"""
                     )
                 }
 
