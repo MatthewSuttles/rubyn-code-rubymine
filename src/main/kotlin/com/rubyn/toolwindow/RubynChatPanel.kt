@@ -21,7 +21,10 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.decodeFromJsonElement
+import org.cef.browser.CefBrowser
+import org.cef.browser.CefFrame
 import java.awt.BorderLayout
+import java.awt.Color
 import java.awt.Font
 import java.beans.PropertyChangeListener
 import java.io.File
@@ -112,6 +115,7 @@ class RubynChatPanel(
             wireInbound()
             subscribeServiceFlows()
             installThemeListener()
+            installLoadEndThemeInjection(b)
         } else {
             browser = null
             jcefBridge = null
@@ -362,6 +366,26 @@ class RubynChatPanel(
             .launchIn(scope)
     }
 
+    // ── Post-load theme injection ─────────────────────────────────────────
+
+    /**
+     * Registers a CEF load handler that injects IDE theme colours into the
+     * webview's CSS custom properties immediately after the page finishes
+     * loading. This ensures the very first paint uses the correct colours.
+     */
+    private fun installLoadEndThemeInjection(b: JBCefBrowser) {
+        val handler = object : org.cef.handler.CefLoadHandlerAdapter() {
+            override fun onLoadEnd(cefBrowser: CefBrowser?, frame: CefFrame?, httpStatusCode: Int) {
+                if (frame == null || !frame.isMain) return
+                injectThemeColors()
+            }
+        }
+        b.jbCefClient.addLoadHandler(handler, b.cefBrowser)
+        Disposer.register(disposable) {
+            b.jbCefClient.removeLoadHandler(handler, b.cefBrowser)
+        }
+    }
+
     // ── Theme listener ────────────────────────────────────────────────────
 
     /**
@@ -388,6 +412,85 @@ class RubynChatPanel(
     private fun sendTheme() {
         val theme = if (!JBColor.isBright()) "dark" else "light"
         sendToWebview("""{"type":"themeChange","theme":"$theme"}""")
+        // Inject actual IDE colours as CSS custom properties so the webview
+        // visuals match the IDE theme (dark or light).
+        injectThemeColors()
+    }
+
+    /**
+     * Injects IntelliJ's actual theme colours into the JCEF webview as CSS
+     * custom properties on `:root`. This overrides the fallback values in
+     * `styles.css` so the chat UI always matches the IDE theme — whether
+     * the user is running a dark or light LAF.
+     *
+     * We read colours from [JBColor], [UIUtil], and standard UIManager keys
+     * and convert them to hex strings.
+     */
+    private fun injectThemeColors() {
+        val panelBg = UIUtil.getPanelBackground()
+        val isDark = !JBColor.isBright()
+
+        val bg        = colorToHex(panelBg)
+        // Surface is slightly different from bg for visual depth
+        val bgSurface = colorToHex(if (isDark) darken(panelBg, 0.15) else lighten(panelBg, 0.03))
+        val fg        = colorToHex(UIUtil.getLabelForeground())
+        val fgMuted   = colorToHex(UIUtil.getContextHelpForeground())
+        // Border from UIManager; fall back to a computed shade
+        val borderColor = UIManager.getColor("Borders.color")
+            ?: if (isDark) lighten(panelBg, 0.25) else darken(panelBg, 0.20)
+        val border    = colorToHex(borderColor)
+
+        // Accent / button colours
+        val accentColor = UIManager.getColor("Component.focusColor")
+            ?: JBColor(0x2979FF, 0x589df6)
+        val accent   = colorToHex(accentColor)
+        val accentFg = if (isDark) "#ffffff" else "#ffffff"
+
+        // Input background — slightly offset from panel bg
+        val bgInput = colorToHex(if (isDark) lighten(panelBg, 0.08) else darken(panelBg, 0.04))
+        val bgHover = colorToHex(if (isDark) lighten(panelBg, 0.12) else darken(panelBg, 0.08))
+
+        val css = buildString {
+            append(":root {")
+            append(" --rubyn-bg: $bg !important;")
+            append(" --rubyn-bg-surface: $bgSurface !important;")
+            append(" --rubyn-bg-input: $bgInput !important;")
+            append(" --rubyn-bg-hover: $bgHover !important;")
+            append(" --rubyn-border: $border !important;")
+            append(" --rubyn-border-input: $border !important;")
+            append(" --rubyn-fg: $fg !important;")
+            append(" --rubyn-fg-muted: $fgMuted !important;")
+            append(" --rubyn-accent: $accent !important;")
+            append(" --rubyn-accent-fg: $accentFg !important;")
+            append(" }")
+        }
+
+        val js = "(function() {" +
+            "var s = document.getElementById('rubyn-theme-vars');" +
+            "if (!s) { s = document.createElement('style'); s.id = 'rubyn-theme-vars'; document.head.appendChild(s); }" +
+            "s.textContent = \"${css.replace("\"", "\\\"")}\";" +
+            "})();"
+
+        browser?.cefBrowser?.executeJavaScript(js, browser?.cefBrowser?.url ?: "", 0)
+        LOG.info("RubynChatPanel: injected theme colors (isDark=$isDark, bg=$bg, surface=$bgSurface)")
+    }
+
+    private fun colorToHex(c: Color): String {
+        return String.format("#%02x%02x%02x", c.red, c.green, c.blue)
+    }
+
+    private fun lighten(c: Color, factor: Double): Color {
+        val r = Math.min(255, (c.red + (255 - c.red) * factor).toInt())
+        val g = Math.min(255, (c.green + (255 - c.green) * factor).toInt())
+        val b = Math.min(255, (c.blue + (255 - c.blue) * factor).toInt())
+        return Color(r, g, b)
+    }
+
+    private fun darken(c: Color, factor: Double): Color {
+        val r = Math.max(0, (c.red * (1 - factor)).toInt())
+        val g = Math.max(0, (c.green * (1 - factor)).toInt())
+        val b = Math.max(0, (c.blue * (1 - factor)).toInt())
+        return Color(r, g, b)
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────
