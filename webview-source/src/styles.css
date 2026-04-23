@@ -145,7 +145,8 @@ body {
 }
 
 .rubyn-status-dot--thinking,
-.rubyn-status-dot--streaming {
+.rubyn-status-dot--streaming,
+.rubyn-status-dot--tool_use {
   background-color: #cca700;
   animation: rubyn-pulse 1.2s ease-in-out infinite;
 }

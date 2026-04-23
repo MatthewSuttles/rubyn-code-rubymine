@@ -134,7 +134,13 @@ const Chat: React.FC = () => {
         case "toolCall": {
           if (msg.sessionId !== activeSessionRef.current) break;
           const m = msg.message as ChatMessage;
-          setAgentStatus("waiting_approval");
+          // Only show "waiting_approval" for tools that need approval.
+          // Auto-approved tools show as "tool_use" (agent is working).
+          if (m.toolCall?.status === "pending") {
+            setAgentStatus("waiting_approval");
+          } else {
+            setAgentStatus("tool_use");
+          }
           setMessages((prev) => {
             // Deduplicate: if a tool call with this ID already exists, update
             // it in place rather than appending a duplicate entry.
@@ -255,6 +261,16 @@ const Chat: React.FC = () => {
     host.send({ type: "denyToolCall", toolCallId, sessionId: activeSessionId });
   };
 
+  // ── Status label ──────────────────────────────────────────────────────────
+  const statusLabels: Record<string, string> = {
+    idle: "Ready",
+    thinking: "Thinking…",
+    streaming: "Writing…",
+    tool_use: "Running tool…",
+    waiting_approval: "Needs approval",
+    error: "Error",
+  };
+
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="rubyn-chat">
@@ -263,7 +279,7 @@ const Chat: React.FC = () => {
         <span className="rubyn-chat__header-title">Rubyn</span>
         <div className="rubyn-chat__header-status">
           <span className={`rubyn-status-dot rubyn-status-dot--${agentStatus}`} />
-          <span className="rubyn-chat__status-label">{agentStatus}</span>
+          <span className="rubyn-chat__status-label">{statusLabels[agentStatus] ?? agentStatus}</span>
         </div>
         <button
           className="rubyn-chat__new-session-btn"

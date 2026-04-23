@@ -314,37 +314,67 @@ class RubynChatPanel(
             }
             .launchIn(scope)
 
+        // Tool call display is now handled by toolUseEvents below.
+        // pendingApprovals only tracks resolutions (approved/denied) to update
+        // the existing tool cards in the webview.
         svc.pendingApprovals
             .onEach { approvals ->
-                // Diff against the previously-sent set so we only push new additions
-                // and removals rather than re-broadcasting the entire list every time.
                 val currentIds = approvals.map { it.toolCallId }.toSet()
-
-                val added   = approvals.filter { it.toolCallId !in sentApprovalIds }
                 val removed = sentApprovalIds - currentIds
 
-                // Notify the webview about newly-added approvals.
-                val sid = svc.sessionId.value ?: ""
-                added.forEach { approval ->
-                    LOG.info("RubynChatPanel: → webview toolCall (id=${approval.toolCallId}, tool=${approval.toolName})")
-                    sendToWebview(
-                        """{"type":"toolCall","sessionId":"${escapeJson(sid)}",""" +
-                            """"message":{"id":"${escapeJson(approval.toolCallId)}",""" +
-                            """"role":"tool","content":"","timestamp":"${java.time.Instant.now()}",""" +
-                            """"toolCall":{"id":"${escapeJson(approval.toolCallId)}",""" +
-                            """"name":"${escapeJson(approval.toolName)}",""" +
-                            """"args":${approval.args},"status":"pending"}}}"""
-                    )
-                }
-
-                // Notify the webview about resolved (approved/denied) approvals so it
-                // can remove their UI elements.
+                // Notify the webview about resolved (approved/denied) approvals so
+                // it can update the tool card status (remove Approve/Deny buttons).
                 removed.forEach { id ->
-                    sendToWebview("""{"type":"toolCallResolved","toolCallId":"${escapeJson(id)}"}""")
+                    sendToWebview("""{"type":"toolResult","toolCallId":"${escapeJson(id)}","status":"approved"}""")
                 }
 
                 sentApprovalIds.clear()
                 sentApprovalIds.addAll(currentIds)
+            }
+            .launchIn(scope)
+
+        // ── Forward ALL tool/use events to webview ─────────────────────────
+        // Non-approval tools are sent with status "approved" so the webview
+        // renders them without Approve/Deny buttons. Approval-required tools
+        // are sent with status "pending" (and also go through pendingApprovals
+        // above for the approval flow).
+        svc.toolUseEvents
+            .onEach { params ->
+                val sid = svc.sessionId.value ?: ""
+                val status = if (params.requiresApproval) "pending" else "approved"
+                val argsJson = params.args.toString()
+                // Finalize any active stream so the tool card appears AFTER the
+                // assistant's text, not interleaved mid-stream.
+                if (currentStreamMessageId != null) {
+                    sendToWebview(
+                        """{"type":"streamChunk","sessionId":"${escapeJson(sid)}",""" +
+                            """"messageId":"${escapeJson(currentStreamMessageId!!)}",""" +
+                            """"delta":"","done":true}"""
+                    )
+                    currentStreamMessageId = null
+                }
+                LOG.info("RubynChatPanel: → webview toolCall (id=${params.requestId}, tool=${params.tool}, approval=${params.requiresApproval})")
+                sendToWebview(
+                    """{"type":"toolCall","sessionId":"${escapeJson(sid)}",""" +
+                        """"message":{"id":"${escapeJson(params.requestId)}",""" +
+                        """"role":"tool","content":"","timestamp":"${java.time.Instant.now()}",""" +
+                        """"toolCall":{"id":"${escapeJson(params.requestId)}",""" +
+                        """"name":"${escapeJson(params.tool)}",""" +
+                        """"args":$argsJson,"status":"$status"}}}"""
+                )
+            }
+            .launchIn(scope)
+
+        // ── Forward tool/result events to webview ────────────────────────
+        svc.toolResultEvents
+            .onEach { result ->
+                val sid = svc.sessionId.value ?: ""
+                val status = if (result.success) "approved" else "denied"
+                LOG.info("RubynChatPanel: → webview toolResult (id=${result.requestId}, tool=${result.tool}, success=${result.success})")
+                sendToWebview(
+                    """{"type":"toolResult","sessionId":"${escapeJson(sid)}",""" +
+                        """"toolCallId":"${escapeJson(result.requestId)}","status":"$status"}"""
+                )
             }
             .launchIn(scope)
 

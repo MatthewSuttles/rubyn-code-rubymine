@@ -23,6 +23,7 @@ import com.rubyn.bridge.SessionResetParams
 import com.rubyn.bridge.SessionResumeParams
 import com.rubyn.bridge.StreamTextParams
 import com.rubyn.bridge.ToolApprovalParams
+import com.rubyn.bridge.ToolResultParams
 import com.rubyn.bridge.ToolUseParams
 import com.rubyn.notifications.RubynNotifier
 import com.rubyn.settings.RubynSettingsService
@@ -88,6 +89,14 @@ class RubynProjectService(private val project: Project) : Disposable {
 
     private val _pendingEdits = MutableStateFlow<List<PendingFileEdit>>(emptyList())
     val pendingEdits: StateFlow<List<PendingFileEdit>> = _pendingEdits.asStateFlow()
+
+    /** Emitted for ALL tool/use notifications, regardless of requiresApproval. */
+    private val _toolUseEvents = MutableSharedFlow<ToolUseParams>(extraBufferCapacity = 64)
+    val toolUseEvents: SharedFlow<ToolUseParams> = _toolUseEvents.asSharedFlow()
+
+    /** Emitted when a tool finishes executing (tool/result notification). */
+    private val _toolResultEvents = MutableSharedFlow<ToolResultParams>(extraBufferCapacity = 64)
+    val toolResultEvents: SharedFlow<ToolResultParams> = _toolResultEvents.asSharedFlow()
 
     private val _streamText = MutableSharedFlow<StreamTextParams>(extraBufferCapacity = 256)
 
@@ -397,6 +406,8 @@ class RubynProjectService(private val project: Project) : Disposable {
             NotificationMethod.TOOL_USE -> {
                 val params = decodeParams<ToolUseParams>(notification) ?: return
                 LOG.info("TOOL_USE: tool=${params.tool}, requiresApproval=${params.requiresApproval}, requestId=${params.requestId}")
+                // Emit to toolUseEvents for ALL tools so the webview can display them.
+                _toolUseEvents.tryEmit(params)
                 if (params.requiresApproval) {
                     val approval = PendingToolApproval(
                         toolCallId = params.requestId,
@@ -454,6 +465,12 @@ class RubynProjectService(private val project: Project) : Disposable {
                     val emitted = _streamText.tryEmit(params)
                     if (!emitted) LOG.warn("STREAM_TEXT: SharedFlow buffer full — dropped chunk")
                 }
+            }
+
+            NotificationMethod.TOOL_RESULT -> {
+                val params = decodeParams<ToolResultParams>(notification) ?: return
+                LOG.info("TOOL_RESULT: tool=${params.tool}, success=${params.success}, requestId=${params.requestId}")
+                _toolResultEvents.tryEmit(params)
             }
 
             NotificationMethod.AGENT_ERROR -> {
