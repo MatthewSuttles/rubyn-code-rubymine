@@ -1,8 +1,8 @@
 /**
  * ToolApproval.tsx — inline approval card for tool calls.
  *
- * Shows the tool name + args, an optional mini diff, and Approve / Deny
- * buttons. Once a decision is made the card becomes read-only.
+ * Compact Claude-Code-style display: shows tool name + a one-line summary
+ * of what it's doing, with expandable details and Approve / Deny buttons.
  *
  * decided state is derived from props first, then from local user action.
  * This ensures host-side status updates (e.g. the bridge resolves a pending
@@ -18,6 +18,38 @@ interface Props {
   onDeny: () => void;
 }
 
+/** Return a human-readable one-line summary of what the tool is doing. */
+function toolSummary(name: string, args: Record<string, unknown>): string {
+  switch (name) {
+    case "bash":
+    case "shell":
+      return String(args.command ?? args.cmd ?? "").slice(0, 120);
+    case "file_edit":
+    case "edit":
+      return args.path ? `Edit ${args.path}` : "Edit file";
+    case "file_write":
+    case "write":
+      return args.path ? `Write ${args.path}` : "Write file";
+    case "file_read":
+    case "read":
+      return args.path ? `Read ${args.path}` : "Read file";
+    case "glob":
+      return args.pattern ? `Find ${args.pattern}` : "Find files";
+    case "grep":
+    case "search":
+      return args.pattern ? `Search: ${args.pattern}` : "Search files";
+    default: {
+      // Generic: show first arg value as summary
+      const vals = Object.values(args);
+      if (vals.length > 0) {
+        const first = String(vals[0]).slice(0, 100);
+        return first;
+      }
+      return name;
+    }
+  }
+}
+
 function formatArgs(args: Record<string, unknown>): string {
   try {
     return JSON.stringify(args, null, 2);
@@ -31,8 +63,6 @@ function MiniDiff({ before, after, path }: { before: string; after: string; path
   const beforeLines = before.split("\n");
   const afterLines = after.split("\n");
 
-  // Simple LCS-free diff: show removed then added lines.
-  // Good enough for short diffs; a full LCS diff is overkill here.
   const removed = beforeLines.filter((l) => !afterLines.includes(l));
   const added = afterLines.filter((l) => !beforeLines.includes(l));
 
@@ -58,17 +88,11 @@ function MiniDiff({ before, after, path }: { before: string; after: string; path
 }
 
 const ToolApproval: React.FC<Props> = ({ toolCall, onApprove, onDeny }) => {
-  // localDecision tracks decisions made in this render session (optimistic UI).
-  // We derive the effective decided value from props first — if the host has
-  // already resolved the call, that takes precedence over local state. This
-  // prevents the card from staying in "pending" state when toolCall.status
-  // changes after mount (e.g. host resolves the call externally).
   const [localDecision, setLocalDecision] = useState<"approved" | "denied" | null>(null);
 
   const propDecided =
     toolCall.status !== "pending" ? (toolCall.status as "approved" | "denied") : null;
 
-  // Prop always wins; local decision is the fallback for optimistic feedback.
   const decided = propDecided ?? localDecision;
 
   const handleApprove = () => {
@@ -81,30 +105,28 @@ const ToolApproval: React.FC<Props> = ({ toolCall, onApprove, onDeny }) => {
     onDeny();
   };
 
-  const statusLabel =
-    decided === "approved"
-      ? "Approved"
-      : decided === "denied"
-      ? "Denied"
-      : null;
+  const summary = toolSummary(toolCall.name, toolCall.args);
+  const statusIcon = decided === "approved" ? "✓" : decided === "denied" ? "✗" : "●";
+  const statusClass = decided ?? "pending";
 
   return (
-    <div className={`rubyn-tool-approval rubyn-tool-approval--${decided ?? "pending"}`}>
-      <div className="rubyn-tool-approval__header">
-        <span className="rubyn-tool-approval__icon">⚙</span>
-        <span className="rubyn-tool-approval__name">{toolCall.name}</span>
-        {statusLabel && (
-          <span className={`rubyn-tool-approval__status rubyn-tool-approval__status--${decided}`}>
-            {statusLabel}
-          </span>
-        )}
+    <div className={`rubyn-tool rubyn-tool--${statusClass}`}>
+      {/* Compact header: icon + tool name + summary */}
+      <div className="rubyn-tool__header">
+        <span className={`rubyn-tool__status-dot rubyn-tool__status-dot--${statusClass}`}>
+          {statusIcon}
+        </span>
+        <span className="rubyn-tool__name">{toolCall.name}</span>
+        <span className="rubyn-tool__summary">{summary}</span>
       </div>
 
-      <details className="rubyn-tool-approval__args-details">
-        <summary>Arguments</summary>
-        <pre className="rubyn-tool-approval__args">{formatArgs(toolCall.args)}</pre>
+      {/* Expandable details */}
+      <details className="rubyn-tool__details">
+        <summary className="rubyn-tool__details-toggle">Details</summary>
+        <pre className="rubyn-tool__args">{formatArgs(toolCall.args)}</pre>
       </details>
 
+      {/* Diff if present */}
       {toolCall.diff && (
         <MiniDiff
           before={toolCall.diff.before}
@@ -113,16 +135,17 @@ const ToolApproval: React.FC<Props> = ({ toolCall, onApprove, onDeny }) => {
         />
       )}
 
+      {/* Approve / Deny actions */}
       {!decided && (
-        <div className="rubyn-tool-approval__actions">
+        <div className="rubyn-tool__actions">
           <button
-            className="rubyn-tool-approval__btn rubyn-tool-approval__btn--deny"
+            className="rubyn-tool__btn rubyn-tool__btn--deny"
             onClick={handleDeny}
           >
             Deny
           </button>
           <button
-            className="rubyn-tool-approval__btn rubyn-tool-approval__btn--approve"
+            className="rubyn-tool__btn rubyn-tool__btn--approve"
             onClick={handleApprove}
           >
             Approve

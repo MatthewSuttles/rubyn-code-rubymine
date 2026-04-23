@@ -41,6 +41,7 @@ const Chat: React.FC = () => {
   const [slashFilter, setSlashFilter] = useState("");
   const [slashVisible, setSlashVisible] = useState(false);
   const [slashIndex, setSlashIndex] = useState(0);
+  const [agentStatus, setAgentStatus] = useState<string>("idle");
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -100,6 +101,8 @@ const Chat: React.FC = () => {
             delta: string;
             done: boolean;
           };
+          // Clear thinking indicator as soon as content starts streaming.
+          setAgentStatus(done ? "idle" : "streaming");
           setMessages((prev) => {
             const exists = prev.some((m) => m.id === messageId);
             const list = exists
@@ -139,6 +142,12 @@ const Chat: React.FC = () => {
             }
             return [...prev, m];
           });
+          break;
+        }
+
+        case "agentStatus": {
+          const status = msg.status as string;
+          setAgentStatus(status);
           break;
         }
 
@@ -303,6 +312,15 @@ const Chat: React.FC = () => {
             onToolDeny={handleToolDeny}
           />
         ))}
+        {agentStatus === "thinking" && (
+          <div className="rubyn-thinking">
+            <div className="rubyn-thinking__dots">
+              <span className="rubyn-thinking__dot" />
+              <span className="rubyn-thinking__dot" />
+              <span className="rubyn-thinking__dot" />
+            </div>
+          </div>
+        )}
         <div ref={messagesEndRef} />
       </div>
 

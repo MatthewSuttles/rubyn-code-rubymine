@@ -321,6 +321,47 @@ body {
   50% { opacity: 0; }
 }
 
+/* ── Thinking indicator ────────────────────────────────────────────────── */
+
+.rubyn-thinking {
+  display: flex;
+  align-items: flex-start;
+  padding: 4px 0;
+}
+
+.rubyn-thinking__dots {
+  display: flex;
+  gap: 4px;
+  padding: 10px 14px;
+  background: var(--rubyn-bg-surface);
+  border: 1px solid var(--rubyn-border);
+  border-radius: var(--rubyn-radius-lg);
+  border-bottom-left-radius: var(--rubyn-radius-sm);
+}
+
+.rubyn-thinking__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--rubyn-fg-muted);
+  animation: rubyn-thinking-bounce 1.4s ease-in-out infinite both;
+}
+
+.rubyn-thinking__dot:nth-child(1) { animation-delay: 0s; }
+.rubyn-thinking__dot:nth-child(2) { animation-delay: 0.16s; }
+.rubyn-thinking__dot:nth-child(3) { animation-delay: 0.32s; }
+
+@keyframes rubyn-thinking-bounce {
+  0%, 80%, 100% {
+    transform: scale(0.6);
+    opacity: 0.4;
+  }
+  40% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
 /* Inline code */
 .rubyn-inline-code {
   background: var(--rubyn-bg-input);
@@ -437,100 +478,147 @@ body {
   color: var(--rubyn-fg);
 }
 
-/* ── Tool approval card ──────────────────────────────────────────────────── */
+/* ── Tool call (compact inline) ─────────────────────────────────────────── */
 
-.rubyn-tool-approval {
-  border: 1px solid var(--rubyn-border);
-  border-radius: var(--rubyn-radius-md);
-  overflow: hidden;
-  width: 100%;
+.rubyn-tool {
+  border-left: 2px solid var(--rubyn-border);
+  padding: 4px 0 4px 10px;
+  margin: 2px 0;
   font-size: 12px;
+  width: 100%;
 }
 
-.rubyn-tool-approval--approved {
-  border-color: var(--rubyn-success);
-}
+.rubyn-tool--approved { border-left-color: var(--rubyn-success); }
+.rubyn-tool--denied   { border-left-color: var(--rubyn-danger); }
+.rubyn-tool--pending  { border-left-color: var(--rubyn-accent); }
 
-.rubyn-tool-approval--denied {
-  border-color: var(--rubyn-danger);
-}
-
-.rubyn-tool-approval__header {
+.rubyn-tool__header {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 7px 10px;
-  background: var(--rubyn-bg-surface);
-  border-bottom: 1px solid var(--rubyn-border);
+  line-height: 1.4;
+  min-height: 22px;
 }
 
-.rubyn-tool-approval__icon {
-  font-size: 14px;
-  color: var(--rubyn-fg-muted);
+.rubyn-tool__status-dot {
+  font-size: 10px;
+  flex-shrink: 0;
+  width: 14px;
+  text-align: center;
 }
 
-.rubyn-tool-approval__name {
+.rubyn-tool__status-dot--pending  { color: var(--rubyn-accent); }
+.rubyn-tool__status-dot--approved { color: var(--rubyn-success); }
+.rubyn-tool__status-dot--denied   { color: var(--rubyn-danger); }
+
+.rubyn-tool__name {
   font-family: var(--rubyn-font-mono);
   font-weight: 600;
-  color: var(--rubyn-fg);
-}
-
-.rubyn-tool-approval__status {
-  margin-left: auto;
   font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  color: var(--rubyn-fg-muted);
+  flex-shrink: 0;
 }
 
-.rubyn-tool-approval__status--approved { color: var(--rubyn-success); }
-.rubyn-tool-approval__status--denied   { color: var(--rubyn-danger);  }
-
-.rubyn-tool-approval__args-details {
-  padding: 4px 10px;
-  border-bottom: 1px solid var(--rubyn-border);
+.rubyn-tool__summary {
+  font-family: var(--rubyn-font-mono);
+  font-size: 11px;
+  color: var(--rubyn-fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
 }
 
-.rubyn-tool-approval__args-details summary {
+.rubyn-tool__details {
+  margin-top: 4px;
+}
+
+.rubyn-tool__details-toggle {
   cursor: pointer;
   color: var(--rubyn-fg-muted);
-  font-size: 11px;
-  padding: 3px 0;
+  font-size: 10px;
+  padding: 2px 0;
   user-select: none;
 }
 
-.rubyn-tool-approval__args {
+.rubyn-tool__details-toggle:hover {
+  color: var(--rubyn-fg);
+}
+
+.rubyn-tool__args {
   margin-top: 4px;
   font-family: var(--rubyn-font-mono);
   font-size: 11px;
   color: var(--rubyn-fg);
   white-space: pre-wrap;
   word-break: break-all;
+  background: var(--rubyn-bg);
+  border: 1px solid var(--rubyn-border);
+  border-radius: var(--rubyn-radius-sm);
+  padding: 6px 8px;
+  max-height: 200px;
+  overflow-y: auto;
 }
+
+.rubyn-tool__actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.rubyn-tool__btn {
+  border: 1px solid;
+  border-radius: var(--rubyn-radius-sm);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 12px;
+  transition: opacity 0.15s;
+}
+
+.rubyn-tool__btn:hover {
+  opacity: 0.8;
+}
+
+.rubyn-tool__btn--approve {
+  background: var(--rubyn-success);
+  border-color: var(--rubyn-success);
+  color: var(--rubyn-success-fg);
+}
+
+.rubyn-tool__btn--deny {
+  background: none;
+  border-color: var(--rubyn-danger);
+  color: var(--rubyn-danger);
+}
+
+/* ── Diff (shared by tool approval) ────────────────────────────────────── */
 
 .rubyn-tool-approval__diff {
   border-top: 1px solid var(--rubyn-border);
+  margin-top: 4px;
 }
 
 .rubyn-tool-approval__diff-path {
-  padding: 4px 10px;
+  padding: 4px 0;
   font-size: 11px;
   font-family: var(--rubyn-font-mono);
   color: var(--rubyn-fg-muted);
-  background: var(--rubyn-bg-surface);
-  border-bottom: 1px solid var(--rubyn-border);
 }
 
 .rubyn-tool-approval__diff-body {
   font-family: var(--rubyn-font-mono);
   font-size: 11px;
   overflow-x: auto;
-  padding: 6px 0;
+  padding: 4px 0;
   background: var(--rubyn-bg);
+  border: 1px solid var(--rubyn-border);
+  border-radius: var(--rubyn-radius-sm);
 }
 
 .rubyn-diff-line {
-  padding: 0 10px;
+  padding: 0 8px;
   white-space: pre;
 }
 
@@ -542,41 +630,6 @@ body {
 .rubyn-diff-line--removed {
   background: var(--rubyn-diff-removed-bg);
   color: var(--rubyn-diff-removed-fg);
-}
-
-.rubyn-tool-approval__actions {
-  display: flex;
-  gap: 6px;
-  padding: 8px 10px;
-  background: var(--rubyn-bg-surface);
-  border-top: 1px solid var(--rubyn-border);
-  justify-content: flex-end;
-}
-
-.rubyn-tool-approval__btn {
-  border: 1px solid;
-  border-radius: var(--rubyn-radius-sm);
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 500;
-  padding: 4px 14px;
-  transition: opacity 0.15s;
-}
-
-.rubyn-tool-approval__btn:hover {
-  opacity: 0.8;
-}
-
-.rubyn-tool-approval__btn--approve {
-  background: var(--rubyn-success);
-  border-color: var(--rubyn-success);
-  color: var(--rubyn-success-fg);
-}
-
-.rubyn-tool-approval__btn--deny {
-  background: none;
-  border-color: var(--rubyn-danger);
-  color: var(--rubyn-danger);
 }
 
 /* ── Slash command menu ──────────────────────────────────────────────────── */
