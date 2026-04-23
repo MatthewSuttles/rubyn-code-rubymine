@@ -42,6 +42,7 @@ const Chat: React.FC = () => {
   const [slashVisible, setSlashVisible] = useState(false);
   const [slashIndex, setSlashIndex] = useState(0);
   const [agentStatus, setAgentStatus] = useState<string>("idle");
+  const [yoloMode, setYoloMode] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -171,6 +172,12 @@ const Chat: React.FC = () => {
           );
           break;
         }
+
+        case "yoloState": {
+          const enabled = (msg as unknown as { enabled: boolean }).enabled;
+          setYoloMode(enabled);
+          break;
+        }
       }
     });
 
@@ -261,6 +268,13 @@ const Chat: React.FC = () => {
     host.send({ type: "denyToolCall", toolCallId, sessionId: activeSessionId });
   };
 
+  // ── YOLO mode toggle ─────────────────────────────────────────────────────
+  const toggleYolo = useCallback(() => {
+    const next = !yoloMode;
+    setYoloMode(next);
+    host.send({ type: "toggleYolo", enabled: next });
+  }, [yoloMode]);
+
   // ── Status label ──────────────────────────────────────────────────────────
   const statusLabels: Record<string, string> = {
     idle: "Ready",
@@ -281,6 +295,13 @@ const Chat: React.FC = () => {
           <span className={`rubyn-status-dot rubyn-status-dot--${agentStatus}`} />
           <span className="rubyn-chat__status-label">{statusLabels[agentStatus] ?? agentStatus}</span>
         </div>
+        <button
+          className={`rubyn-chat__yolo-btn ${yoloMode ? "rubyn-chat__yolo-btn--active" : ""}`}
+          title={yoloMode ? "YOLO mode ON — all tools auto-approved" : "YOLO mode OFF — tools require approval"}
+          onClick={toggleYolo}
+        >
+          {yoloMode ? "⚡ YOLO" : "⚡"}
+        </button>
         <button
           className="rubyn-chat__new-session-btn"
           title="New session"

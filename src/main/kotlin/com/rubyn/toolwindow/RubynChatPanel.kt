@@ -13,6 +13,7 @@ import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import com.rubyn.services.AgentStatus
 import com.rubyn.services.RubynProjectService
+import com.rubyn.settings.RubynSettingsService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -241,6 +242,19 @@ class RubynChatPanel(
                 svc.denyToolUse(id)
             }
 
+            "toggleYolo" -> {
+                val enabled = map["enabled"]?.let {
+                    runCatching { Json.decodeFromJsonElement<Boolean>(it) }.getOrNull()
+                } ?: false
+                LOG.info("RubynChatPanel: ← webview toggleYolo (enabled=$enabled)")
+                val settingsService = RubynSettingsService.getInstance()
+                val current = settingsService.settings()
+                val newMode = if (enabled) "bypassPermissions" else "default"
+                settingsService.applySettings(current.copy(permissionMode = newMode))
+                // Ack back to webview
+                sendToWebview("""{"type":"yoloState","enabled":$enabled}""")
+            }
+
             "getSessions" -> sendSessionList()
 
             "newSession" -> {
@@ -274,6 +288,9 @@ class RubynChatPanel(
             .onEach { sid ->
                 if (sid != null) {
                     sendToWebview("""{"type":"sessionId","sessionId":"${escapeJson(sid)}"}""")
+                    // Send initial YOLO state so the toggle reflects the current setting
+                    val isYolo = RubynSettingsService.getInstance().settings().permissionMode == "bypassPermissions"
+                    sendToWebview("""{"type":"yoloState","enabled":$isYolo}""")
                 }
             }
             .launchIn(scope)
@@ -341,7 +358,11 @@ class RubynChatPanel(
         svc.toolUseEvents
             .onEach { params ->
                 val sid = svc.sessionId.value ?: ""
-                val status = if (params.requiresApproval) "pending" else "approved"
+                val permMode = RubynSettingsService.getInstance().settings().permissionMode
+                val isYolo = permMode == "bypassPermissions"
+                // In YOLO mode, auto-approve tools that would normally require approval
+                val needsApproval = params.requiresApproval && !isYolo
+                val status = if (needsApproval) "pending" else "approved"
                 val argsJson = params.args.toString()
                 // Finalize any active stream so the tool card appears AFTER the
                 // assistant's text, not interleaved mid-stream.
@@ -353,7 +374,7 @@ class RubynChatPanel(
                     )
                     currentStreamMessageId = null
                 }
-                LOG.info("RubynChatPanel: → webview toolCall (id=${params.requestId}, tool=${params.tool}, approval=${params.requiresApproval})")
+                LOG.info("RubynChatPanel: → webview toolCall (id=${params.requestId}, tool=${params.tool}, approval=${params.requiresApproval}, yolo=$isYolo)")
                 sendToWebview(
                     """{"type":"toolCall","sessionId":"${escapeJson(sid)}",""" +
                         """"message":{"id":"${escapeJson(params.requestId)}",""" +
@@ -362,6 +383,11 @@ class RubynChatPanel(
                         """"name":"${escapeJson(params.tool)}",""" +
                         """"args":$argsJson,"status":"$status"}}}"""
                 )
+                // In YOLO mode, immediately approve the tool call on the backend
+                if (params.requiresApproval && isYolo) {
+                    LOG.info("RubynChatPanel: YOLO auto-approving tool (id=${params.requestId})")
+                    svc.approveToolUse(params.requestId)
+                }
             }
             .launchIn(scope)
 

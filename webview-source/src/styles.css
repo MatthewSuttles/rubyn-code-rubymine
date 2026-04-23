@@ -185,6 +185,41 @@ body {
   cursor: pointer;
 }
 
+/* ── YOLO mode toggle ─────────────────────────────────────────────────── */
+
+.rubyn-chat__yolo-btn {
+  background: none;
+  border: 1px solid var(--rubyn-border);
+  border-radius: var(--rubyn-radius-sm);
+  color: var(--rubyn-fg-muted);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 2px 8px;
+  flex-shrink: 0;
+  transition: all 0.15s;
+  letter-spacing: 0.03em;
+}
+
+.rubyn-chat__yolo-btn:hover {
+  background: var(--rubyn-bg-hover);
+  color: var(--rubyn-fg);
+  border-color: var(--rubyn-fg-muted);
+}
+
+.rubyn-chat__yolo-btn--active {
+  background: #f59e0b;
+  border-color: #f59e0b;
+  color: #000;
+}
+
+.rubyn-chat__yolo-btn--active:hover {
+  background: #d97706;
+  border-color: #d97706;
+  color: #000;
+}
+
 .rubyn-chat__new-session-btn {
   background: none;
   border: 1px solid var(--rubyn-border);
