@@ -255,16 +255,6 @@ const Chat: React.FC = () => {
     host.send({ type: "denyToolCall", toolCallId, sessionId: activeSessionId });
   };
 
-  // ── Session switch ────────────────────────────────────────────────────────
-  const handleSessionChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setActiveSessionId(e.target.value);
-    setMessages([]);
-    host.send({ type: "getMessages", sessionId: e.target.value });
-  };
-
-  // ── Active session label ──────────────────────────────────────────────────
-  const activeSession = sessions.find((s) => s.id === activeSessionId);
-
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="rubyn-chat">
