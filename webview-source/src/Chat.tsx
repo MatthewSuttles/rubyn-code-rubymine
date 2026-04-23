@@ -35,7 +35,7 @@ function generateId(): string {
 const Chat: React.FC = () => {
   // ── State ────────────────────────────────────────────────────────────────
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [sessions, setSessions] = useState<Session[]>([]);
+  const [, setSessions] = useState<Session[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [slashFilter, setSlashFilter] = useState("");
