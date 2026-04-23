@@ -280,17 +280,24 @@ class RubynChatPanel(
 
         svc.agentStatus
             .onEach { status ->
-                // When the agent starts thinking, generate a new message ID
-                // for the upcoming stream. When it goes idle, clear it.
+                // Generate a message ID when the agent starts thinking so all
+                // subsequent stream chunks are grouped under the same bubble.
+                //
+                // IMPORTANT: Do NOT clear currentStreamMessageId here on IDLE.
+                // The CLI sends `agent/status: done` and `stream/text: final=true`
+                // concurrently.  Because agentStatus and streamDone are collected
+                // in separate coroutines, the IDLE status can arrive and null out
+                // the ID *before* the streamDone collector reads it, causing the
+                // final chunk to get a fallback messageId and create a duplicate
+                // assistant message.  Only streamDone should clear the ID.
                 when (status) {
                     AgentStatus.THINKING, AgentStatus.STREAMING -> {
                         if (currentStreamMessageId == null) {
                             currentStreamMessageId = java.util.UUID.randomUUID().toString()
                         }
                     }
-                    AgentStatus.IDLE, AgentStatus.ERROR -> {
-                        currentStreamMessageId = null
-                    }
+                    // Don't touch currentStreamMessageId for IDLE/ERROR —
+                    // streamDone handles that after sending the final chunk.
                     else -> { /* keep current */ }
                 }
                 sendToWebview(agentStatusJson(status))
