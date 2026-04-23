@@ -386,6 +386,7 @@ class RubynProjectService(private val project: Project) : Disposable {
     // ── Notification dispatch ─────────────────────────────────────────────
 
     private suspend fun handleNotification(notification: RpcNotification) {
+        LOG.info("handleNotification: method='${notification.method}' params=${notification.params?.toString()?.take(200)}")
         when (notification.method) {
             NotificationMethod.AGENT_STATUS -> {
                 val params = decodeParams<AgentStatusParams>(notification) ?: return

@@ -65,6 +65,8 @@ const Chat: React.FC = () => {
 
   useEffect(() => {
     const unsub = host.on((msg: InboundMessage) => {
+      // Diagnostic: log every inbound message so we can trace what's arriving
+      console.log("[rubyn:chat] inbound:", msg.type, msg);
       switch (msg.type) {
         // The Kotlin side pushes the real session ID so the webview can
         // match it against inbound streamChunk / toolCall messages.
@@ -133,8 +135,13 @@ const Chat: React.FC = () => {
         }
 
         case "toolCall": {
-          if (msg.sessionId !== activeSessionRef.current) break;
+          console.log("[rubyn:chat] toolCall received", { sid: msg.sessionId, active: activeSessionRef.current, match: msg.sessionId === activeSessionRef.current });
+          if (msg.sessionId !== activeSessionRef.current) {
+            console.warn("[rubyn:chat] toolCall DROPPED — sessionId mismatch", msg.sessionId, "!==", activeSessionRef.current);
+            break;
+          }
           const m = msg.message as ChatMessage;
+          console.log("[rubyn:chat] toolCall processing", { id: m.id, role: m.role, toolCall: m.toolCall });
           // Only show "waiting_approval" for tools that need approval.
           // Auto-approved tools show as "tool_use" (agent is working).
           if (m.toolCall?.status === "pending") {
