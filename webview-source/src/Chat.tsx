@@ -134,6 +134,7 @@ const Chat: React.FC = () => {
         case "toolCall": {
           if (msg.sessionId !== activeSessionRef.current) break;
           const m = msg.message as ChatMessage;
+          setAgentStatus("waiting_approval");
           setMessages((prev) => {
             // Deduplicate: if a tool call with this ID already exists, update
             // it in place rather than appending a duplicate entry.
@@ -228,6 +229,7 @@ const Chat: React.FC = () => {
     setMessages((prev) => [...prev, msg]);
     setInput("");
     setSlashVisible(false);
+    setAgentStatus("thinking"); // Show thinking dots immediately
 
     host.send({ type: "sendMessage", sessionId, text, messageId: id });
   }, [input, activeSessionId]);
@@ -266,27 +268,13 @@ const Chat: React.FC = () => {
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="rubyn-chat">
-      {/* Session indicator */}
+      {/* Session header */}
       <div className="rubyn-chat__header">
         <span className="rubyn-chat__header-title">Rubyn</span>
-        {sessions.length > 1 ? (
-          <select
-            className="rubyn-chat__session-select"
-            value={activeSessionId ?? ""}
-            onChange={handleSessionChange}
-            aria-label="Select session"
-          >
-            {sessions.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.title}
-              </option>
-            ))}
-          </select>
-        ) : (
-          <span className="rubyn-chat__session-label">
-            {activeSession?.title ?? "Session"}
-          </span>
-        )}
+        <div className="rubyn-chat__header-status">
+          <span className={`rubyn-status-dot rubyn-status-dot--${agentStatus}`} />
+          <span className="rubyn-chat__status-label">{agentStatus}</span>
+        </div>
         <button
           className="rubyn-chat__new-session-btn"
           title="New session"

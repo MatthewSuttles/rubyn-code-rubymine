@@ -66,30 +66,24 @@ const Message: React.FC<Props> = ({ message, onToolApprove, onToolDeny }) => {
     ? (message.content ?? "") + (message.streamingDelta ?? "")
     : message.content;
 
-  return (
-    <div className={`rubyn-message rubyn-message--${message.role}`}>
-      <div className="rubyn-message__bubble">
-        {isUser ? (
-          <p className="rubyn-message__user-text">{displayContent}</p>
-        ) : (
-          <div className="rubyn-message__assistant-content">
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={markdownComponents}
-            >
-              {displayContent}
-            </ReactMarkdown>
-            {message.isStreaming && (
-              <span className="rubyn-message__cursor" aria-hidden="true" />
-            )}
-          </div>
-        )}
+  if (isUser) {
+    return (
+      <div className="rubyn-message rubyn-message--user">
+        <div className="rubyn-message__bubble">{displayContent}</div>
       </div>
-      <div className="rubyn-message__meta">
-        {new Date(message.timestamp).toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-        })}
+    );
+  }
+
+  // Assistant: no bubble — flowing content with streaming cursor
+  return (
+    <div className="rubyn-message rubyn-message--assistant">
+      <div className={`rubyn-message__content${message.isStreaming ? " streaming-cursor" : ""}`}>
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={markdownComponents}
+        >
+          {displayContent}
+        </ReactMarkdown>
       </div>
     </div>
   );

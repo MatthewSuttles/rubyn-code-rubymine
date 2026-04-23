@@ -116,6 +116,54 @@ body {
   flex-shrink: 0;
 }
 
+.rubyn-chat__header-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  font-size: 11px;
+  color: var(--rubyn-fg-muted);
+}
+
+.rubyn-chat__status-label {
+  font-size: 11px;
+  color: var(--rubyn-fg-muted);
+}
+
+/* ── Status dot ───────────────────────────────────────────────────────── */
+
+.rubyn-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--rubyn-fg-muted);
+  flex-shrink: 0;
+}
+
+.rubyn-status-dot--idle {
+  background-color: var(--rubyn-fg-muted);
+}
+
+.rubyn-status-dot--thinking,
+.rubyn-status-dot--streaming {
+  background-color: #cca700;
+  animation: rubyn-pulse 1.2s ease-in-out infinite;
+}
+
+.rubyn-status-dot--waiting_approval {
+  background-color: var(--rubyn-accent);
+  animation: rubyn-pulse 0.8s ease-in-out infinite;
+}
+
+.rubyn-status-dot--error {
+  background-color: var(--rubyn-danger);
+}
+
+@keyframes rubyn-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
 .rubyn-chat__session-label {
   font-size: 12px;
   color: var(--rubyn-fg-muted);
@@ -273,51 +321,41 @@ body {
   align-items: flex-start;
 }
 
+/* User message: right-aligned bubble */
 .rubyn-message__bubble {
   max-width: 85%;
   padding: 8px 12px;
   border-radius: var(--rubyn-radius-lg);
+  border-bottom-right-radius: var(--rubyn-radius-sm);
   line-height: 1.55;
   word-break: break-word;
-}
-
-.rubyn-message--user .rubyn-message__bubble {
   background: var(--rubyn-accent);
   color: var(--rubyn-accent-fg);
-  border-bottom-right-radius: var(--rubyn-radius-sm);
 }
 
-.rubyn-message--assistant .rubyn-message__bubble {
-  background: var(--rubyn-bg-surface);
-  border: 1px solid var(--rubyn-border);
-  border-bottom-left-radius: var(--rubyn-radius-sm);
-}
-
-.rubyn-message--tool .rubyn-message__bubble {
-  background: transparent;
-  border: none;
-  padding: 0;
+/* Assistant message: no bubble, flowing content */
+.rubyn-message--assistant .rubyn-message__content {
   max-width: 100%;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  line-height: 1.55;
 }
 
-.rubyn-message__meta {
-  font-size: 10px;
+/* Tool message: transparent, full width */
+.rubyn-message--tool {
+  width: 100%;
+}
+
+/* Streaming cursor blink (appended via CSS ::after) */
+.streaming-cursor::after {
+  content: '\25AE';
+  animation: rubyn-blink 0.8s step-end infinite;
   color: var(--rubyn-fg-muted);
-  padding: 0 4px;
-}
-
-/* Streaming cursor blink */
-.rubyn-message__cursor {
-  display: inline-block;
-  width: 2px;
-  height: 1em;
-  background: var(--rubyn-fg);
-  margin-left: 2px;
-  vertical-align: text-bottom;
-  animation: rubyn-blink 1s step-start infinite;
+  margin-left: 1px;
 }
 
 @keyframes rubyn-blink {
+  0%, 100% { opacity: 1; }
   50% { opacity: 0; }
 }
 
